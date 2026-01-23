@@ -82,7 +82,8 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 ### Game loop behavior
 - Tick order: apply docker events -> handle input -> move entities -> resolve collisions -> draw.
 - Player respawns after a delay; respawn delay is configurable.
-- Enemy AI is random wandering (no chase logic yet).
+- Enemy AI supports two modes: random wandering or SARSA reinforcement learning.
+- SARSA mode: enemies learn to chase the player using on-policy RL.
 - Maze bounds are enforced before tile lookups.
 
 ### Flags and defaults
@@ -92,6 +93,10 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - `--tick-ms`: tick duration in milliseconds (default 80).
 - `--log-file`: path to log file for game actions (default empty = disabled).
 - `--debug`: enable debug logging to stdout (default false).
+- `--ai-mode`: enemy AI mode, `random` or `sarsa` (default sarsa).
+- `--training`: enable SARSA training mode (default true).
+- `--epsilon`: SARSA exploration rate 0.0-1.0 (default 0.1).
+- `--qtable`: path to Q-table file (default ~/.pacman-pod-killer/qtable.json).
 
 ### Logging and output
 - Avoid stdout spam; keep warnings concise.
@@ -101,6 +106,16 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - Log file captures: collisions, container removals, docker events, respawns.
 - Logger is thread-safe and writes timestamped messages with level prefixes.
 
+### SARSA reinforcement learning
+- State representation: relative player position (clamped to [-2,+2]) + available moves.
+- State space: ~400 possible states for manageable Q-table size.
+- Action space: Up, Down, Left, Right (4 actions).
+- Reward function: +100 catch, +1 closer, -0.5 farther, -2 wall, -0.1 step penalty.
+- Hyperparameters: alpha=0.1, gamma=0.95, epsilon=0.1 (configurable).
+- All enemies share a single Q-table for collective learning.
+- Q-table persists to JSON file between sessions.
+- SARSA update: Q(s,a) += alpha * [r + gamma * Q(s',a') - Q(s,a)].
+
 ## Repository layout
 - `cmd/pacman`: entrypoint and wiring
 - `internal/game`: state, controller, conversion helpers
@@ -108,7 +123,7 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - `internal/render`: terminal rendering
 - `internal/input`: input reader
 - `internal/dockerwatch`: Docker client/event watcher
-- `internal/ai`: random movement logic
+- `internal/ai`: enemy AI (random and SARSA reinforcement learning)
 - `internal/logger`: thread-safe file-based logging
 
 ## File boundaries
