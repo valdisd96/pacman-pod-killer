@@ -23,6 +23,7 @@ const (
 	defaultHeight        = 10 // Logical height (number of corridor cells)
 	defaultTickMillis    = 80
 	defaultRespawnMillis = 10000
+	defaultEpsilon       = 0.1 // SARSA exploration rate
 )
 
 func main() {
@@ -33,6 +34,13 @@ func main() {
 	respawnMillis := flag.Int("respawn-delay", defaultRespawnMillis, "respawn delay in ms")
 	debug := flag.Bool("debug", false, "enable debug logging")
 	logFile := flag.String("log-file", "", "path to log file for game actions (empty = disabled)")
+
+	// SARSA AI flags
+	aiMode := flag.String("ai-mode", "sarsa", "AI mode: 'random' or 'sarsa'")
+	training := flag.Bool("training", true, "enable SARSA training mode (updates Q-table)")
+	epsilon := flag.Float64("epsilon", defaultEpsilon, "SARSA exploration rate 0.0-1.0")
+	qtablePath := flag.String("qtable", ai.DefaultQTablePath(), "path to Q-table file")
+
 	flag.Parse()
 
 	log, err := logger.New(*logFile)
@@ -112,9 +120,59 @@ func main() {
 		}
 	}
 
-	controller := game.NewController(state, renderer, inputReader, ai.NewRandom(), enemyChan, dockerClient, log)
+	// Initialize AI
+	var sarsaAI *ai.SARSA
+	var selectedAIMode game.AIMode
+
+	if *aiMode == "sarsa" {
+		selectedAIMode = game.AIModeSARSA
+		// Load existing Q-table or create new one
+		qTable, err := ai.LoadQTable(*qtablePath)
+		if err != nil {
+			log.Error("Failed to load Q-table from %s: %v (starting fresh)", *qtablePath, err)
+			qTable = ai.NewQTable()
+		} else if qTable.Size() > 0 {
+			log.Info("Loaded Q-table with %d states from %s", qTable.Size(), *qtablePath)
+		}
+
+		sarsaAI = ai.NewSARSA(ai.SARSAConfig{
+			Alpha:    ai.DefaultAlpha,
+			Gamma:    ai.DefaultGamma,
+			Epsilon:  *epsilon,
+			Training: *training,
+			QTable:   qTable,
+		})
+		log.Info("SARSA AI initialized: training=%v epsilon=%.2f", *training, *epsilon)
+	} else {
+		selectedAIMode = game.AIModeRandom
+		log.Info("Random AI initialized")
+	}
+
+	controller := game.NewController(game.ControllerConfig{
+		State:       state,
+		Renderer:    renderer,
+		Input:       inputReader,
+		RandomAI:    ai.NewRandom(),
+		SarsaAI:     sarsaAI,
+		AIMode:      selectedAIMode,
+		EnemyEvents: enemyChan,
+		Docker:      dockerClient,
+		Log:         log,
+	})
+
 	ticker := time.NewTicker(time.Duration(*tickMillis) * time.Millisecond)
 	defer ticker.Stop()
+
+	// Save Q-table on exit
+	defer func() {
+		if sarsaAI != nil && *training {
+			if err := controller.SaveQTable(*qtablePath); err != nil {
+				log.Error("Failed to save Q-table: %v", err)
+			} else {
+				log.Info("Saved Q-table to %s (%d states)", *qtablePath, sarsaAI.QTable().Size())
+			}
+		}
+	}()
 
 	for {
 		select {

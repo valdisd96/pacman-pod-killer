@@ -11,20 +11,67 @@ import (
 	"pacman-pod-killer/internal/render"
 )
 
+// AIMode represents the enemy AI algorithm to use
+type AIMode string
+
+const (
+	AIModeRandom AIMode = "random"
+	AIModeSARSA  AIMode = "sarsa"
+)
+
 type Controller struct {
 	state       *GameState
 	renderer    *render.Renderer
 	input       *input.Reader
-	ai          *ai.Random
+	randomAI    *ai.Random
+	sarsaAI     *ai.SARSA
+	aiMode      AIMode
 	enemyEvents <-chan dockerwatch.Event
 	docker      *dockerwatch.Client
 	rng         *rand.Rand
 	log         *logger.Logger
 }
 
-func NewController(state *GameState, renderer *render.Renderer, input *input.Reader, enemyAI *ai.Random, events <-chan dockerwatch.Event, docker *dockerwatch.Client, log *logger.Logger) *Controller {
-	rng := rand.New(rand.NewSource(state.Seed))
-	return &Controller{state: state, renderer: renderer, input: input, ai: enemyAI, enemyEvents: events, docker: docker, rng: rng, log: log}
+// ControllerConfig holds configuration for the game controller
+type ControllerConfig struct {
+	State       *GameState
+	Renderer    *render.Renderer
+	Input       *input.Reader
+	RandomAI    *ai.Random
+	SarsaAI     *ai.SARSA
+	AIMode      AIMode
+	EnemyEvents <-chan dockerwatch.Event
+	Docker      *dockerwatch.Client
+	Log         *logger.Logger
+}
+
+// NewController creates a new game controller
+func NewController(cfg ControllerConfig) *Controller {
+	rng := rand.New(rand.NewSource(cfg.State.Seed))
+	aiMode := cfg.AIMode
+	if aiMode == "" {
+		aiMode = AIModeSARSA // Default to SARSA
+	}
+	return &Controller{
+		state:       cfg.State,
+		renderer:    cfg.Renderer,
+		input:       cfg.Input,
+		randomAI:    cfg.RandomAI,
+		sarsaAI:     cfg.SarsaAI,
+		aiMode:      aiMode,
+		enemyEvents: cfg.EnemyEvents,
+		docker:      cfg.Docker,
+		rng:         rng,
+		log:         cfg.Log,
+	}
+}
+
+// SaveQTable saves the SARSA Q-table to disk (if using SARSA mode)
+func (controller *Controller) SaveQTable(path string) error {
+	if controller.sarsaAI == nil {
+		return nil
+	}
+	return controller.sarsaAI.QTable().Save(path)
 }
 
 func (controller *Controller) Tick() error {
@@ -83,7 +130,22 @@ func (controller *Controller) moveEnemies() {
 		if !enemy.Alive {
 			continue
 		}
-		dx, dy := controller.ai.NextStep(&controller.state.Maze, enemy.Position.X, enemy.Position.Y)
+
+		var dx, dy int
+		if controller.aiMode == AIModeSARSA && controller.sarsaAI != nil {
+			// Use SARSA with learning
+			dx, dy = controller.sarsaAI.Step(
+				enemy.Position.X, enemy.Position.Y,
+				controller.state.Player.X, controller.state.Player.Y,
+				&controller.state.Maze,
+				&enemy.SARSAState,
+				false, // not caught yet
+			)
+		} else {
+			// Use random AI
+			dx, dy = controller.randomAI.NextStep(&controller.state.Maze, enemy.Position.X, enemy.Position.Y)
+		}
+
 		nx := enemy.Position.X + dx
 		ny := enemy.Position.Y + dy
 
@@ -106,6 +168,17 @@ func (controller *Controller) resolveCollisions() {
 		if enemy.Position.X == controller.state.Player.X && enemy.Position.Y == controller.state.Player.Y {
 			controller.log.Info("COLLISION: Player at (%d,%d) hit enemy %s (container=%s)",
 				controller.state.Player.X, controller.state.Player.Y, enemy.ID, enemy.ContainerID)
+
+			// Give SARSA reward for catching the player
+			if controller.aiMode == AIModeSARSA && controller.sarsaAI != nil {
+				controller.sarsaAI.HandlePlayerCaught(
+					&enemy.SARSAState,
+					&controller.state.Maze,
+					enemy.Position.X, enemy.Position.Y,
+					controller.state.Player.X, controller.state.Player.Y,
+				)
+			}
+
 			enemy.Alive = false
 			controller.state.Player.Alive = false
 			controller.state.Player.RespawnAt = time.Now().Add(controller.state.Player.RespawnDelay)
