@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"pacman-pod-killer/internal/ai"
 	"pacman-pod-killer/internal/maze"
 )
 
@@ -26,6 +27,8 @@ type Enemy struct {
 	Position    Position
 	ContainerID string
 	Alive       bool
+	// SARSA state for on-policy learning (shared Q-table, per-enemy state)
+	SARSAState ai.EnemyState
 }
 
 type GameState struct {
