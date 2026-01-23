@@ -126,6 +126,12 @@ func (controller *Controller) tryMovePlayer(dx, dy int) {
 }
 
 func (controller *Controller) moveEnemies() {
+	// Only move enemies every N ticks based on EnemySpeed
+	// EnemySpeed=1 means move every tick, EnemySpeed=2 means every 2nd tick, etc.
+	if controller.state.EnemySpeed > 1 && controller.state.Tick%int64(controller.state.EnemySpeed) != 0 {
+		return
+	}
+
 	for _, enemy := range controller.state.Enemies {
 		if !enemy.Alive {
 			continue
