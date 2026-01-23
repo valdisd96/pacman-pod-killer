@@ -7,11 +7,15 @@ import (
 	"pacman-pod-killer/internal/maze"
 )
 
-func NewState(grid maze.Grid, seed int64, respawnDelay time.Duration) *GameState {
+func NewState(grid maze.Grid, seed int64, respawnDelay time.Duration, enemySpeed int) *GameState {
 	player := Player{
 		Position:     Position{X: 0, Y: 0}, // Start at logical (0, 0)
 		Alive:        true,
 		RespawnDelay: respawnDelay,
+	}
+
+	if enemySpeed < 1 {
+		enemySpeed = 1
 	}
 
 	return &GameState{
@@ -20,6 +24,7 @@ func NewState(grid maze.Grid, seed int64, respawnDelay time.Duration) *GameState
 		Enemies:        map[string]*Enemy{},
 		ContainerIndex: map[string]string{},
 		Seed:           seed,
+		EnemySpeed:     enemySpeed,
 		DockerStatus:   "docker: unknown",
 		DockerError:    "",
 	}

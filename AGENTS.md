@@ -91,6 +91,7 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - `--seed`: RNG seed (default time-based).
 - `--respawn-delay`: delay in milliseconds (default 10000).
 - `--tick-ms`: tick duration in milliseconds (default 80).
+- `--enemy-speed`: enemy moves every N ticks (default 2, higher = slower enemies).
 - `--log-file`: path to log file for game actions (default empty = disabled).
 - `--debug`: enable debug logging to stdout (default false).
 - `--ai-mode`: enemy AI mode, `random` or `sarsa` (default sarsa).

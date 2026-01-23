@@ -38,6 +38,7 @@ type GameState struct {
 	ContainerIndex map[string]string
 	Seed           int64
 	Tick           int64
+	EnemySpeed     int // Enemy moves every N ticks (higher = slower enemies)
 	DockerStatus   string
 	DockerError    string
 }

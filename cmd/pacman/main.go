@@ -24,6 +24,7 @@ const (
 	defaultTickMillis    = 80
 	defaultRespawnMillis = 10000
 	defaultEpsilon       = 0.1 // SARSA exploration rate
+	defaultEnemySpeed    = 2   // Enemy moves every N ticks (higher = slower enemies)
 )
 
 func main() {
@@ -32,6 +33,7 @@ func main() {
 	seed := flag.Int64("seed", time.Now().UnixNano(), "random seed")
 	tickMillis := flag.Int("tick-ms", defaultTickMillis, "tick duration in ms")
 	respawnMillis := flag.Int("respawn-delay", defaultRespawnMillis, "respawn delay in ms")
+	enemySpeed := flag.Int("enemy-speed", defaultEnemySpeed, "enemy moves every N ticks (higher = slower enemies, min 1)")
 	debug := flag.Bool("debug", false, "enable debug logging")
 	logFile := flag.String("log-file", "", "path to log file for game actions (empty = disabled)")
 
@@ -52,7 +54,7 @@ func main() {
 
 	if log.Enabled() {
 		log.Info("=== Game starting ===")
-		log.Info("Config: width=%d height=%d seed=%d tick=%dms respawn=%dms", *width, *height, *seed, *tickMillis, *respawnMillis)
+		log.Info("Config: width=%d height=%d seed=%d tick=%dms respawn=%dms enemy-speed=%d", *width, *height, *seed, *tickMillis, *respawnMillis, *enemySpeed)
 	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -65,7 +67,13 @@ func main() {
 	rng := rand.New(rand.NewSource(*seed))
 	mazeGrid := maze.Generate(*width, *height, rng)
 
-	state := game.NewState(mazeGrid, *seed, time.Duration(*respawnMillis)*time.Millisecond)
+	// Ensure enemy speed is at least 1
+	espeed := *enemySpeed
+	if espeed < 1 {
+		espeed = 1
+	}
+
+	state := game.NewState(mazeGrid, *seed, time.Duration(*respawnMillis)*time.Millisecond, espeed)
 
 	screen, err := tcell.NewScreen()
 	if err != nil {
