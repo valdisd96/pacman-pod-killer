@@ -1,0 +1,2 @@
+This is empty project. I want to create a funny terminal pacman game with big labirint where enemy will be running docker containers on my desctop. When i will kill the enemy - the apropriate docker containe shoud be deleted too.
+During the game session the new enemy-containers should appear accrding running containers on my host. If i will start the new - the new enemy should be appear in the game in current session.
