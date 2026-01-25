@@ -20,16 +20,30 @@ func New(screen tcell.Screen) *Renderer {
 func (renderer *Renderer) Close() {
 }
 
+// PortalInfo represents a portal to render
+type PortalInfo struct {
+	X         int    // Logical X
+	Y         int    // Logical Y
+	IsExit    bool   // True if exit portal (to next location)
+	TargetLoc string // Target location name
+}
+
 type Frame struct {
-	Maze       maze.Grid
-	PlayerX    int // Logical X coordinate
-	PlayerY    int // Logical Y coordinate
-	PlayerLive bool
-	Enemies    []Position // Logical coordinates
-	Seed       int64
-	Tick       int64
-	DockerInfo string
-	DockerErr  string
+	Maze            maze.Grid
+	PlayerX         int // Logical X coordinate
+	PlayerY         int // Logical Y coordinate
+	PlayerLive      bool
+	Enemies         []Position   // Logical coordinates
+	Portals         []PortalInfo // Portal positions to render
+	Seed            int64
+	Tick            int64
+	DockerInfo      string
+	DockerErr       string
+	CurrentLocation string // Current location name (empty if no locations)
+	TotalLocations  int    // Total number of locations (0 if no locations)
+	GameWon         bool   // True if player reached the final exit
+	EnemiesKilled   int    // Total enemies killed
+	PlayerDeaths    int    // Total player deaths
 }
 
 type Position struct {
@@ -52,6 +66,20 @@ func (renderer *Renderer) Draw(frame Frame) error {
 		}
 	}
 
+	// Draw portals as 3x3 blocks with distinct colors
+	exitPortalStyle := renderer.style.Foreground(tcell.ColorGreen).Background(tcell.ColorBlack)
+	entryPortalStyle := renderer.style.Foreground(tcell.ColorPurple).Background(tcell.ColorBlack)
+	for _, portal := range frame.Portals {
+		sx, sy := maze.LogicToScreen(portal.X, portal.Y)
+		if portal.IsExit {
+			// Exit portal: green 'O' (leads to next location)
+			renderer.drawEntity(sx, sy, 'O', exitPortalStyle)
+		} else {
+			// Entry portal: purple '<' (leads back to previous location)
+			renderer.drawEntity(sx, sy, '<', entryPortalStyle)
+		}
+	}
+
 	// Draw enemies as 3x3 blocks
 	enemyStyle := renderer.style.Foreground(tcell.ColorRed)
 	for _, enemy := range frame.Enemies {
@@ -67,7 +95,14 @@ func (renderer *Renderer) Draw(frame Frame) error {
 	}
 
 	// Draw status bar below the maze
-	status := fmt.Sprintf("seed:%d enemies:%d tick:%d %s", frame.Seed, len(frame.Enemies), frame.Tick, frame.DockerInfo)
+	var status string
+	if frame.GameWon {
+		status = fmt.Sprintf("*** YOU WIN! *** kills:%d deaths:%d tick:%d", frame.EnemiesKilled, frame.PlayerDeaths, frame.Tick)
+	} else if frame.CurrentLocation != "" {
+		status = fmt.Sprintf("location:%s kills:%d enemies:%d tick:%d %s", frame.CurrentLocation, frame.EnemiesKilled, len(frame.Enemies), frame.Tick, frame.DockerInfo)
+	} else {
+		status = fmt.Sprintf("seed:%d enemies:%d tick:%d %s", frame.Seed, len(frame.Enemies), frame.Tick, frame.DockerInfo)
+	}
 	for i, r := range status {
 		renderer.screen.SetContent(i, frame.Maze.Height, r, nil, renderer.style)
 	}

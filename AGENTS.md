@@ -117,10 +117,18 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - Q-table persists to JSON file between sessions.
 - SARSA update: Q(s,a) += alpha * [r + gamma * Q(s',a') - Q(s,a)].
 
+### Maze generation
+- Walls are rendered as `#` characters.
+- Floor (walkable areas) are rendered as spaces for a clean look.
+- Multiple maze styles cycle per location: Classic, Corridors, Rooms, Spiral, Grid.
+- Each location gets a different style based on its index: `style = styles[index % 5]`.
+- Connectivity is guaranteed: `EnsureConnectivity()` carves a path if none exists between entry and exit.
+- Portals: green `O` for exit (next location), purple `<` for entry (previous location).
+
 ## Repository layout
 - `cmd/pacman`: entrypoint and wiring
 - `internal/game`: state, controller, conversion helpers
-- `internal/maze`: maze generation
+- `internal/maze`: maze generation (multiple styles, pathfinding, connectivity)
 - `internal/render`: terminal rendering
 - `internal/input`: input reader
 - `internal/dockerwatch`: Docker client/event watcher

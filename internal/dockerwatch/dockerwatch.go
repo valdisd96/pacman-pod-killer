@@ -21,8 +21,9 @@ const (
 )
 
 type Event struct {
-	Type        EventType
-	ContainerID string
+	Type          EventType
+	ContainerID   string
+	ContainerName string // Container name for location matching
 }
 
 type Client struct {
@@ -32,9 +33,10 @@ type Client struct {
 }
 
 type EnemyInfo struct {
-	ID          string
-	ContainerID string
-	Alive       bool
+	ID            string
+	ContainerID   string
+	ContainerName string // Container name for location matching
+	Alive         bool
 }
 
 func New(log *logger.Logger) (*Client, error) {
@@ -66,8 +68,16 @@ func (c *Client) ListEnemies() ([]EnemyInfo, error) {
 		if len(id) > 12 {
 			id = id[:12]
 		}
-		c.log.Debug("Found container: id=%s full_id=%s", id, ctr.ID)
-		enemies = append(enemies, EnemyInfo{ID: id, ContainerID: ctr.ID, Alive: true})
+		// Extract container name (remove leading /)
+		name := ""
+		if len(ctr.Names) > 0 {
+			name = ctr.Names[0]
+			if len(name) > 0 && name[0] == '/' {
+				name = name[1:]
+			}
+		}
+		c.log.Debug("Found container: id=%s name=%s full_id=%s", id, name, ctr.ID)
+		enemies = append(enemies, EnemyInfo{ID: id, ContainerID: ctr.ID, ContainerName: name, Alive: true})
 	}
 	return enemies, nil
 }
@@ -95,14 +105,19 @@ func (c *Client) Watch(eventsOut chan<- Event, stop <-chan struct{}) {
 			if message.Type != events.ContainerEventType {
 				continue
 			}
-			c.log.Debug("Docker event: action=%s container=%s", message.Action, message.ID)
+			// Extract container name from event attributes
+			name := ""
+			if message.Actor.Attributes != nil {
+				name = message.Actor.Attributes["name"]
+			}
+			c.log.Debug("Docker event: action=%s container=%s name=%s", message.Action, message.ID, name)
 			if message.Action == "start" {
-				c.log.Info("Container started: %s", message.ID)
-				eventsOut <- Event{Type: EventStart, ContainerID: message.ID}
+				c.log.Info("Container started: %s (name=%s)", message.ID, name)
+				eventsOut <- Event{Type: EventStart, ContainerID: message.ID, ContainerName: name}
 			}
 			if message.Action == "die" || message.Action == "stop" {
-				c.log.Info("Container stopped: %s (action=%s)", message.ID, message.Action)
-				eventsOut <- Event{Type: EventStop, ContainerID: message.ID}
+				c.log.Info("Container stopped: %s (name=%s, action=%s)", message.ID, name, message.Action)
+				eventsOut <- Event{Type: EventStop, ContainerID: message.ID, ContainerName: name}
 			}
 		}
 	}

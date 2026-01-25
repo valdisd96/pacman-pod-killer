@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -25,6 +26,7 @@ const (
 	defaultRespawnMillis = 10000
 	defaultEpsilon       = 0.1 // SARSA exploration rate
 	defaultEnemySpeed    = 2   // Enemy moves every N ticks (higher = slower enemies)
+	defaultLocations     = ""  // No locations = single maze mode
 )
 
 func main() {
@@ -43,7 +45,21 @@ func main() {
 	epsilon := flag.Float64("epsilon", defaultEpsilon, "SARSA exploration rate 0.0-1.0")
 	qtablePath := flag.String("qtable", ai.DefaultQTablePath(), "path to Q-table file")
 
+	// Location flags for level-based gameplay
+	locations := flag.String("locations", defaultLocations, "comma-separated list of location patterns (e.g., 'location1,location2,location3')")
+
 	flag.Parse()
+
+	// Parse locations into a slice
+	var locationList []string
+	if *locations != "" {
+		for _, loc := range strings.Split(*locations, ",") {
+			loc = strings.TrimSpace(loc)
+			if loc != "" {
+				locationList = append(locationList, loc)
+			}
+		}
+	}
 
 	log, err := logger.New(*logFile)
 	if err != nil {
@@ -64,16 +80,32 @@ func main() {
 
 	fmt.Println("Warning: this game deletes running containers on enemy death.")
 
-	rng := rand.New(rand.NewSource(*seed))
-	mazeGrid := maze.Generate(*width, *height, rng)
-
 	// Ensure enemy speed is at least 1
 	espeed := *enemySpeed
 	if espeed < 1 {
 		espeed = 1
 	}
 
-	state := game.NewState(mazeGrid, *seed, time.Duration(*respawnMillis)*time.Millisecond, espeed)
+	// Create RNG for enemy spawning
+	rng := rand.New(rand.NewSource(*seed))
+
+	var state *game.GameState
+	if len(locationList) > 0 {
+		// Level-based mode with locations
+		state = game.NewStateWithConfig(game.StateConfig{
+			Seed:         *seed,
+			RespawnDelay: time.Duration(*respawnMillis) * time.Millisecond,
+			EnemySpeed:   espeed,
+			Locations:    locationList,
+			LogicWidth:   *width,
+			LogicHeight:  *height,
+		}, nil)
+		log.Info("Level mode: %d locations configured: %v", len(locationList), locationList)
+	} else {
+		// Classic single maze mode
+		mazeGrid := maze.Generate(*width, *height, rng)
+		state = game.NewState(mazeGrid, *seed, time.Duration(*respawnMillis)*time.Millisecond, espeed)
+	}
 
 	screen, err := tcell.NewScreen()
 	if err != nil {
@@ -122,7 +154,12 @@ func main() {
 			log.Info("Docker connected, found %d containers", len(enemies))
 			snapshots := make([]game.EnemySnapshot, 0, len(enemies))
 			for _, enemy := range enemies {
-				snapshots = append(snapshots, game.EnemySnapshot{ID: enemy.ID, ContainerID: enemy.ContainerID, Alive: enemy.Alive})
+				snapshots = append(snapshots, game.EnemySnapshot{
+					ID:            enemy.ID,
+					ContainerID:   enemy.ContainerID,
+					ContainerName: enemy.ContainerName,
+					Alive:         enemy.Alive,
+				})
 			}
 			state.SyncEnemies(game.EnemiesFromDocker(snapshots, rng, state))
 		}
