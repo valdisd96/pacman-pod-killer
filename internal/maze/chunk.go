@@ -55,16 +55,15 @@ type ChunkManager struct {
 	straightBias float64 // Probability to continue in same direction (0.0-1.0)
 }
 
-// styleForIndex returns the maze style for a given location index
-// This cycles through different styles to provide variety
-func styleForIndex(index int) MazeStyle {
+// randomStyle returns a random maze style
+func randomStyle(rng *rand.Rand) MazeStyle {
 	styles := []MazeStyle{StyleClassic, StyleCorridors, StyleRooms, StyleSpiral, StyleGrid}
-	return styles[index%len(styles)]
+	return styles[rng.Intn(len(styles))]
 }
 
 // NewChunkManager creates a chunk manager for the given locations
 // locationNames is a comma-separated or slice of location patterns (e.g., ["location1", "location2", "location3"])
-func NewChunkManager(locationNames []string, logicWidth, logicHeight int) *ChunkManager {
+func NewChunkManager(locationNames []string, logicWidth, logicHeight int, rng *rand.Rand) *ChunkManager {
 	locations := make([]Location, len(locationNames))
 	for i, name := range locationNames {
 		locations[i] = Location{
@@ -72,7 +71,7 @@ func NewChunkManager(locationNames []string, logicWidth, logicHeight int) *Chunk
 			Index:    i,
 			IsFinal:  i == len(locationNames)-1,
 			ExitEdge: EdgeRight, // Default: exit on right edge to next location
-			Style:    styleForIndex(i),
+			Style:    randomStyle(rng),
 		}
 	}
 

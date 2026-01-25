@@ -120,8 +120,8 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 ### Maze generation
 - Walls are rendered as `#` characters.
 - Floor (walkable areas) are rendered as spaces for a clean look.
-- Multiple maze styles cycle per location: Classic, Corridors, Rooms, Spiral, Grid.
-- Each location gets a different style based on its index: `style = styles[index % 5]`.
+- Multiple maze styles available: Classic, Corridors, Rooms, Spiral, Grid.
+- Each location gets a randomly chosen style (using the game's RNG seed for reproducibility).
 - Connectivity is guaranteed: `EnsureConnectivity()` carves a path if none exists between entry and exit.
 - Portals: green `O` for exit (next location), purple `<` for entry (previous location).
 
