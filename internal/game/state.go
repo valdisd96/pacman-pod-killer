@@ -7,27 +7,63 @@ import (
 	"pacman-pod-killer/internal/maze"
 )
 
+// StateConfig holds configuration for creating a new game state
+type StateConfig struct {
+	Seed         int64
+	RespawnDelay time.Duration
+	EnemySpeed   int
+	Locations    []string // Ordered list of location names (e.g., ["location1", "location2", "location3"])
+	LogicWidth   int
+	LogicHeight  int
+}
+
 func NewState(grid maze.Grid, seed int64, respawnDelay time.Duration, enemySpeed int) *GameState {
+	return NewStateWithConfig(StateConfig{
+		Seed:         seed,
+		RespawnDelay: respawnDelay,
+		EnemySpeed:   enemySpeed,
+		Locations:    nil, // No locations = single maze mode
+		LogicWidth:   grid.LogicWidth,
+		LogicHeight:  grid.LogicHeight,
+	}, &grid)
+}
+
+// NewStateWithConfig creates a new game state with location support
+func NewStateWithConfig(cfg StateConfig, initialGrid *maze.Grid) *GameState {
 	player := Player{
 		Position:     Position{X: 0, Y: 0}, // Start at logical (0, 0)
 		Alive:        true,
-		RespawnDelay: respawnDelay,
+		RespawnDelay: cfg.RespawnDelay,
 	}
 
-	if enemySpeed < 1 {
-		enemySpeed = 1
+	if cfg.EnemySpeed < 1 {
+		cfg.EnemySpeed = 1
 	}
 
-	return &GameState{
-		Maze:           grid,
+	state := &GameState{
 		Player:         player,
 		Enemies:        map[string]*Enemy{},
 		ContainerIndex: map[string]string{},
-		Seed:           seed,
-		EnemySpeed:     enemySpeed,
+		Seed:           cfg.Seed,
+		EnemySpeed:     cfg.EnemySpeed,
 		DockerStatus:   "docker: unknown",
 		DockerError:    "",
 	}
+
+	// Initialize chunk manager if locations are specified
+	if len(cfg.Locations) > 0 {
+		state.ChunkManager = maze.NewChunkManager(cfg.Locations, cfg.LogicWidth, cfg.LogicHeight)
+		state.CurrentLocation = state.ChunkManager.FirstLocation()
+		// Generate the first location's maze
+		rng := rand.New(rand.NewSource(cfg.Seed))
+		state.Maze = *state.ChunkManager.GetOrGenerate(state.CurrentLocation, rng)
+	} else if initialGrid != nil {
+		// Single maze mode (backwards compatible)
+		state.Maze = *initialGrid
+		state.CurrentLocation = ""
+	}
+
+	return state
 }
 
 // FindOpenPosition finds a random open logical position in the maze
@@ -70,4 +106,33 @@ func (state *GameState) SyncEnemies(incoming []Enemy) {
 		state.Enemies[enemy.ID] = &copy
 		state.ContainerIndex[enemy.ContainerID] = enemy.ID
 	}
+}
+
+// EnemiesInCurrentLocation returns enemies that belong to the current location
+func (state *GameState) EnemiesInCurrentLocation() []*Enemy {
+	var enemies []*Enemy
+	for _, enemy := range state.Enemies {
+		if enemy.Alive && enemy.Location == state.CurrentLocation {
+			enemies = append(enemies, enemy)
+		}
+	}
+	return enemies
+}
+
+// SwitchLocation changes the current location and updates the maze
+func (state *GameState) SwitchLocation(newLocation string, rng *rand.Rand) bool {
+	if state.ChunkManager == nil {
+		return false
+	}
+
+	loc := state.ChunkManager.GetLocation(newLocation)
+	if loc == nil {
+		return false
+	}
+
+	state.CurrentLocation = newLocation
+	state.Maze = *state.ChunkManager.GetOrGenerate(newLocation, rng)
+
+	// Note: GameWon is set when player enters the WIN portal, not just entering the final location
+	return true
 }

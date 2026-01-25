@@ -1,2 +1,5 @@
-This is empty project. I want to create a funny terminal pacman game with big labirint where enemy will be running docker containers on my desctop. When i will kill the enemy - the apropriate docker containe shoud be deleted too.
-During the game session the new enemy-containers should appear accrding running containers on my host. If i will start the new - the new enemy should be appear in the game in current session.
+
+
+ At the moment, I only see location1 > location2 > Win. I ran it with the command:
+DOCKER_HOST=unix:///Users/uvauchok/.docker/run/docker.sock script -q /dev/null go run ./cmd/pacman --width 44 --height 12 --seed 123 --respawn-delay 10000 --epsilon 0.3 --tick-ms 80 --log-file game.log --enemy-speed 4 --locations "location1,location2,location3"
+I want to display all locations, and then WIN - which means the game is completed, exiting with scores displayed (killed enemies, for example) 

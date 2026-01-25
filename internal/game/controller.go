@@ -113,8 +113,70 @@ func (controller *Controller) tryMovePlayer(dx, dy int) {
 	if !controller.state.Player.Alive {
 		return
 	}
+
+	// Check for game won state
+	if controller.state.GameWon {
+		return
+	}
+
 	nx := controller.state.Player.X + dx
 	ny := controller.state.Player.Y + dy
+
+	// Check for portal transitions (location changes)
+	if controller.state.ChunkManager != nil {
+		// Check if player is at WIN portal and moving right (final location)
+		winPortal := controller.state.ChunkManager.GetWinPortal(controller.state.CurrentLocation)
+		if winPortal != nil && dx > 0 &&
+			controller.state.Player.X == winPortal.X && controller.state.Player.Y == winPortal.Y {
+			controller.log.Info("Player entering WIN portal in %s - GAME WON!", controller.state.CurrentLocation)
+			controller.state.GameWon = true
+			return
+		}
+
+		// Check if player is at exit portal and moving right
+		exitPortal := controller.state.ChunkManager.GetExitPortal(controller.state.CurrentLocation)
+		if exitPortal != nil && !exitPortal.IsWinExit && dx > 0 &&
+			controller.state.Player.X == exitPortal.X && controller.state.Player.Y == exitPortal.Y {
+			nextLoc := controller.state.ChunkManager.NextLocation(controller.state.CurrentLocation)
+			if nextLoc != nil {
+				controller.log.Info("Player entering exit portal: %s -> %s", controller.state.CurrentLocation, nextLoc.Name)
+				if controller.state.SwitchLocation(nextLoc.Name, controller.rng) {
+					// Find entry portal in the new location
+					entryPortal := controller.state.ChunkManager.GetEntryPortal(nextLoc.Name)
+					if entryPortal != nil {
+						controller.state.Player.X = entryPortal.X
+						controller.state.Player.Y = entryPortal.Y
+					} else {
+						// Fallback: enter at left edge, keep Y position
+						controller.state.Player.X = 0
+					}
+					return
+				}
+			}
+		}
+
+		// Check if player is at entry portal and moving left
+		entryPortal := controller.state.ChunkManager.GetEntryPortal(controller.state.CurrentLocation)
+		if entryPortal != nil && dx < 0 &&
+			controller.state.Player.X == entryPortal.X && controller.state.Player.Y == entryPortal.Y {
+			prevLoc := controller.state.ChunkManager.PrevLocation(controller.state.CurrentLocation)
+			if prevLoc != nil {
+				controller.log.Info("Player entering entry portal: %s -> %s", controller.state.CurrentLocation, prevLoc.Name)
+				if controller.state.SwitchLocation(prevLoc.Name, controller.rng) {
+					// Find exit portal in the previous location
+					prevExitPortal := controller.state.ChunkManager.GetExitPortal(prevLoc.Name)
+					if prevExitPortal != nil {
+						controller.state.Player.X = prevExitPortal.X
+						controller.state.Player.Y = prevExitPortal.Y
+					} else {
+						// Fallback: enter at right edge, keep Y position
+						controller.state.Player.X = controller.state.Maze.LogicWidth - 1
+					}
+					return
+				}
+			}
+		}
+	}
 
 	// Check if movement is allowed (bounds, floor, and passage exists)
 	if !controller.state.Maze.CanMove(controller.state.Player.X, controller.state.Player.Y, nx, ny) {
@@ -134,6 +196,11 @@ func (controller *Controller) moveEnemies() {
 
 	for _, enemy := range controller.state.Enemies {
 		if !enemy.Alive {
+			continue
+		}
+
+		// Only move enemies in the current location
+		if controller.state.ChunkManager != nil && enemy.Location != controller.state.CurrentLocation {
 			continue
 		}
 
@@ -170,10 +237,16 @@ func (controller *Controller) resolveCollisions() {
 		if !enemy.Alive {
 			continue
 		}
+
+		// Only check collisions with enemies in the current location
+		if controller.state.ChunkManager != nil && enemy.Location != controller.state.CurrentLocation {
+			continue
+		}
+
 		// Collision check using logical coordinates
 		if enemy.Position.X == controller.state.Player.X && enemy.Position.Y == controller.state.Player.Y {
-			controller.log.Info("COLLISION: Player at (%d,%d) hit enemy %s (container=%s)",
-				controller.state.Player.X, controller.state.Player.Y, enemy.ID, enemy.ContainerID)
+			controller.log.Info("COLLISION: Player at (%d,%d) hit enemy %s (container=%s) in %s",
+				controller.state.Player.X, controller.state.Player.Y, enemy.ID, enemy.ContainerID, controller.state.CurrentLocation)
 
 			// Give SARSA reward for catching the player
 			if controller.aiMode == AIModeSARSA && controller.sarsaAI != nil {
@@ -188,6 +261,8 @@ func (controller *Controller) resolveCollisions() {
 			enemy.Alive = false
 			controller.state.Player.Alive = false
 			controller.state.Player.RespawnAt = time.Now().Add(controller.state.Player.RespawnDelay)
+			controller.state.EnemiesKilled++
+			controller.state.PlayerDeaths++
 			if controller.docker != nil {
 				controller.log.Info("Requesting container removal for enemy %s (container=%s)", enemy.ID, enemy.ContainerID)
 				if err := controller.docker.Remove(enemy.ContainerID); err != nil {
@@ -237,15 +312,21 @@ func (controller *Controller) handleDockerEvent(event dockerwatch.Event) {
 		if controller.state.DockerStatus == "docker: connected" {
 			controller.state.DockerStatus = "docker: events"
 		}
+
+		// Determine location based on container name
+		location := DetermineLocation(event.ContainerName, controller.state)
+
 		enemy := Enemy{
 			ID:          id,
 			ContainerID: event.ContainerID,
+			Location:    location,
 			Position:    controller.state.FindOpenPosition(controller.rng),
 			Alive:       true,
 		}
 		controller.state.Enemies[enemy.ID] = &enemy
 		controller.state.ContainerIndex[enemy.ContainerID] = enemy.ID
-		controller.log.Info("Enemy spawned: id=%s container=%s at (%d,%d)", enemy.ID, enemy.ContainerID, enemy.Position.X, enemy.Position.Y)
+		controller.log.Info("Enemy spawned: id=%s container=%s name=%s location=%s at (%d,%d)",
+			enemy.ID, enemy.ContainerID, event.ContainerName, location, enemy.Position.X, enemy.Position.Y)
 	case dockerwatch.EventStop:
 		if enemyID, exists := controller.state.ContainerIndex[event.ContainerID]; exists {
 			controller.log.Info("Enemy removed via EventStop: id=%s container=%s", enemyID, event.ContainerID)
