@@ -52,10 +52,10 @@ func NewStateWithConfig(cfg StateConfig, initialGrid *maze.Grid) *GameState {
 
 	// Initialize chunk manager if locations are specified
 	if len(cfg.Locations) > 0 {
-		state.ChunkManager = maze.NewChunkManager(cfg.Locations, cfg.LogicWidth, cfg.LogicHeight)
+		rng := rand.New(rand.NewSource(cfg.Seed))
+		state.ChunkManager = maze.NewChunkManager(cfg.Locations, cfg.LogicWidth, cfg.LogicHeight, rng)
 		state.CurrentLocation = state.ChunkManager.FirstLocation()
 		// Generate the first location's maze
-		rng := rand.New(rand.NewSource(cfg.Seed))
 		state.Maze = *state.ChunkManager.GetOrGenerate(state.CurrentLocation, rng)
 	} else if initialGrid != nil {
 		// Single maze mode (backwards compatible)
