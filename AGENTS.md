@@ -80,11 +80,21 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - Avoid blocking event handling; buffer events where needed.
 
 ### Game loop behavior
-- Tick order: apply docker events -> handle input -> move entities -> resolve collisions -> draw.
+- Tick order: apply docker events -> handle input -> move bullets -> resolve bullet collisions -> move enemies -> resolve collisions -> draw.
 - Player respawns after a delay; respawn delay is configurable.
 - Enemy AI supports two modes: random wandering or SARSA reinforcement learning.
 - SARSA mode: enemies learn to chase the player using on-policy RL.
 - Maze bounds are enforced before tile lookups.
+
+### Shooting mechanic
+- Player fires bullets with Spacebar; bullets travel in the direction of last movement.
+- Bullets move every tick (faster than enemies which move every N ticks based on EnemySpeed).
+- Bullets disappear when hitting walls (uses `CanMove()` to detect walls between cells).
+- Bullets kill the first enemy they hit, then disappear; this triggers container removal.
+- 5-tick cooldown between shots prevents spam.
+- Bullets are rendered as white `●` (U+25CF) characters in 3x3 blocks.
+- Bullet state: `Bullet` struct with `Position`, `Direction`, and `Alive` fields.
+- Player tracks `LastDirection` for shooting; defaults to right `{X: 1, Y: 0}`.
 
 ### Flags and defaults
 - `--width` / `--height`: maze size (default 15x10 logical cells).
@@ -104,7 +114,7 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - Prefer stderr for errors.
 - Ensure terminal state is restored even on errors.
 - Use `--log-file` flag to enable file-based logging for troubleshooting.
-- Log file captures: collisions, container removals, docker events, respawns.
+- Log file captures: collisions, container removals, docker events, respawns, bullet hits.
 - Logger is thread-safe and writes timestamped messages with level prefixes.
 
 ### SARSA reinforcement learning

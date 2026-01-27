@@ -45,5 +45,13 @@ func BuildFrame(state *GameState) render.Frame {
 		}
 		frame.Enemies = append(frame.Enemies, render.Position{X: enemy.Position.X, Y: enemy.Position.Y})
 	}
+
+	// Add bullets
+	for _, bullet := range state.Bullets {
+		if bullet.Alive {
+			frame.Bullets = append(frame.Bullets, render.Position{X: bullet.Position.X, Y: bullet.Position.Y})
+		}
+	}
+
 	return frame
 }

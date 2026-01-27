@@ -1,0 +1,23 @@
+# Shooting Implementation Task List
+
+- [x] Planning <!-- id: 0 -->
+    - [x] Analyze existing code <!-- id: 1 -->
+    - [x] Create implementation plan <!-- id: 2 -->
+- [x] Implementation <!-- id: 3 -->
+    - [x] Update Data Structures (`types.go`) <!-- id: 4 -->
+        - [x] Add `Bullet` struct <!-- id: 5 -->
+        - [x] Update `Player` struct (LastDirection) <!-- id: 6 -->
+        - [x] Update `GameState` struct (Bullets slice, Cooldown tracking) <!-- id: 7 -->
+    - [x] Update Input Handling (`input.go`) <!-- id: 8 -->
+        - [x] Add `ActionShoot` <!-- id: 9 -->
+        - [x] Map Spacebar to `ActionShoot` <!-- id: 10 -->
+    - [x] Update Game Logic (`controller.go`) <!-- id: 11 -->
+        - [x] Track player direction updates <!-- id: 12 -->
+        - [x] Implement `handleShoot` <!-- id: 13 -->
+        - [x] Implement `moveBullets` (movement + wall collision) <!-- id: 14 -->
+        - [x] Implement `resolveBulletCollisions` (enemy interaction) <!-- id: 15 -->
+    - [x] Update Rendering (`internal/render/`) <!-- id: 16 -->
+        - [x] Render bullets as `●` <!-- id: 17 -->
+- [x] Verification <!-- id: 18 -->
+    - [x] Verify compilation <!-- id: 19 -->
+    - [ ] Manual test of shooting mechanics <!-- id: 20 -->

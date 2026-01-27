@@ -82,6 +82,10 @@ func (controller *Controller) Tick() error {
 		return err
 	}
 
+	// Move bullets every tick (faster than enemies)
+	controller.moveBullets()
+	controller.resolveBulletCollisions()
+
 	if controller.state.Player.Alive {
 		controller.moveEnemies()
 		controller.resolveCollisions()
@@ -105,8 +109,117 @@ func (controller *Controller) handleInput() error {
 		controller.tryMovePlayer(-1, 0)
 	case input.ActionRight:
 		controller.tryMovePlayer(1, 0)
+	case input.ActionShoot:
+		controller.tryShoot()
 	}
 	return nil
+}
+
+func (controller *Controller) tryShoot() {
+	if !controller.state.Player.Alive {
+		return
+	}
+
+	// Check cooldown
+	if controller.state.Tick-controller.state.LastShootTick < controller.state.ShootCooldown {
+		return
+	}
+
+	// Ensure player has a direction to shoot
+	dir := controller.state.Player.LastDirection
+	if dir.X == 0 && dir.Y == 0 {
+		// Default to right if no direction set yet
+		dir = Position{X: 1, Y: 0}
+	}
+
+	// Create bullet at player's position
+	bullet := Bullet{
+		Position:  controller.state.Player.Position,
+		Direction: dir,
+		Alive:     true,
+	}
+
+	controller.state.Bullets = append(controller.state.Bullets, bullet)
+	controller.state.LastShootTick = controller.state.Tick
+	controller.log.Info("Player fired bullet at (%d,%d) direction (%d,%d)",
+		bullet.Position.X, bullet.Position.Y, dir.X, dir.Y)
+}
+
+func (controller *Controller) moveBullets() {
+	for i := range controller.state.Bullets {
+		bullet := &controller.state.Bullets[i]
+		if !bullet.Alive {
+			continue
+		}
+
+		nx := bullet.Position.X + bullet.Direction.X
+		ny := bullet.Position.Y + bullet.Direction.Y
+
+		// Check if movement is allowed (bounds, floor, and passage exists)
+		// This uses CanMove which checks for walls between cells
+		if !controller.state.Maze.CanMove(bullet.Position.X, bullet.Position.Y, nx, ny) {
+			bullet.Alive = false
+			controller.log.Info("Bullet at (%d,%d) hit wall at (%d,%d)", bullet.Position.X, bullet.Position.Y, nx, ny)
+			continue
+		}
+
+		// Move bullet
+		bullet.Position.X = nx
+		bullet.Position.Y = ny
+	}
+
+	// Remove dead bullets
+	controller.filterDeadBullets()
+}
+
+func (controller *Controller) filterDeadBullets() {
+	alive := controller.state.Bullets[:0]
+	for _, bullet := range controller.state.Bullets {
+		if bullet.Alive {
+			alive = append(alive, bullet)
+		}
+	}
+	controller.state.Bullets = alive
+}
+
+func (controller *Controller) resolveBulletCollisions() {
+	for i := range controller.state.Bullets {
+		bullet := &controller.state.Bullets[i]
+		if !bullet.Alive {
+			continue
+		}
+
+		for _, enemy := range controller.state.Enemies {
+			if !enemy.Alive {
+				continue
+			}
+
+			// Only check enemies in the current location
+			if controller.state.ChunkManager != nil && enemy.Location != controller.state.CurrentLocation {
+				continue
+			}
+
+			// Check if bullet hits enemy
+			if bullet.Position.X == enemy.Position.X && bullet.Position.Y == enemy.Position.Y {
+				controller.log.Info("BULLET HIT: Bullet at (%d,%d) hit enemy %s (container=%s)",
+					bullet.Position.X, bullet.Position.Y, enemy.ID, enemy.ContainerID)
+
+				bullet.Alive = false
+				enemy.Alive = false
+				controller.state.EnemiesKilled++
+
+				if controller.docker != nil {
+					controller.log.Info("Requesting container removal for enemy %s (container=%s)", enemy.ID, enemy.ContainerID)
+					if err := controller.docker.Remove(enemy.ContainerID); err != nil {
+						controller.log.Error("Failed to remove container %s: %v", enemy.ContainerID, err)
+					}
+				}
+
+				// One bullet kills one enemy, then bullet dies
+				break
+			}
+		}
+	}
 }
 
 func (controller *Controller) tryMovePlayer(dx, dy int) {
@@ -185,6 +298,9 @@ func (controller *Controller) tryMovePlayer(dx, dy int) {
 
 	controller.state.Player.X = nx
 	controller.state.Player.Y = ny
+
+	// Track the last direction for shooting
+	controller.state.Player.LastDirection = Position{X: dx, Y: dy}
 }
 
 func (controller *Controller) moveEnemies() {
