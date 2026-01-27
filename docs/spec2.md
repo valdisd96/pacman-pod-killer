@@ -1,0 +1,1 @@
+with @github check the issue https://github.com/valdisd96/pacman-pod-killer/issues/2 and propose me the best dockumentations subagent configuration, regarding best ai coding agents practicies
