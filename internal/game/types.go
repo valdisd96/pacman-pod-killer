@@ -16,6 +16,13 @@ type Position struct {
 	Y int
 }
 
+// Bullet represents a projectile fired by the player
+type Bullet struct {
+	Position  Position
+	Direction Position // dx, dy for movement
+	Alive     bool
+}
+
 // WorldPosition represents a position in the infinite world
 type WorldPosition struct {
 	Location string // Which location/chunk (e.g., "location1")
@@ -25,9 +32,10 @@ type WorldPosition struct {
 
 type Player struct {
 	Position
-	Alive        bool
-	RespawnAt    time.Time
-	RespawnDelay time.Duration
+	Alive         bool
+	RespawnAt     time.Time
+	RespawnDelay  time.Duration
+	LastDirection Position // Direction of last movement (for shooting)
 }
 
 type Enemy struct {
@@ -55,6 +63,9 @@ type GameState struct {
 	GameWon         bool               // True if player reached the final exit
 	EnemiesKilled   int                // Total enemies killed (containers removed)
 	PlayerDeaths    int                // Total player deaths
+	Bullets         []Bullet           // Active bullets in the game
+	LastShootTick   int64              // Tick when player last shot
+	ShootCooldown   int64              // Cooldown between shots (in ticks)
 }
 
 type EnemySnapshot struct {

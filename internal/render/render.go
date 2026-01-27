@@ -34,6 +34,7 @@ type Frame struct {
 	PlayerY         int // Logical Y coordinate
 	PlayerLive      bool
 	Enemies         []Position   // Logical coordinates
+	Bullets         []Position   // Bullet positions (logical coordinates)
 	Portals         []PortalInfo // Portal positions to render
 	Seed            int64
 	Tick            int64
@@ -78,6 +79,13 @@ func (renderer *Renderer) Draw(frame Frame) error {
 			// Entry portal: purple '<' (leads back to previous location)
 			renderer.drawEntity(sx, sy, '<', entryPortalStyle)
 		}
+	}
+
+	// Draw bullets as 3x3 blocks
+	bulletStyle := renderer.style.Foreground(tcell.ColorWhite)
+	for _, bullet := range frame.Bullets {
+		sx, sy := maze.LogicToScreen(bullet.X, bullet.Y)
+		renderer.drawEntity(sx, sy, '\u25CF', bulletStyle) // ● character
 	}
 
 	// Draw enemies as 3x3 blocks

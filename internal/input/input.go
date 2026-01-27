@@ -11,6 +11,7 @@ const (
 	ActionLeft
 	ActionRight
 	ActionQuit
+	ActionShoot
 )
 
 type Reader struct {
@@ -93,6 +94,8 @@ func parseEvent(event tcell.Event) Action {
 				return ActionRight
 			case 'q', 'Q':
 				return ActionQuit
+			case ' ':
+				return ActionShoot
 			}
 		}
 	}

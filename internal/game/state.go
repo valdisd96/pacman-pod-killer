@@ -31,9 +31,10 @@ func NewState(grid maze.Grid, seed int64, respawnDelay time.Duration, enemySpeed
 // NewStateWithConfig creates a new game state with location support
 func NewStateWithConfig(cfg StateConfig, initialGrid *maze.Grid) *GameState {
 	player := Player{
-		Position:     Position{X: 0, Y: 0}, // Start at logical (0, 0)
-		Alive:        true,
-		RespawnDelay: cfg.RespawnDelay,
+		Position:      Position{X: 0, Y: 0}, // Start at logical (0, 0)
+		Alive:         true,
+		RespawnDelay:  cfg.RespawnDelay,
+		LastDirection: Position{X: 1, Y: 0}, // Default to right
 	}
 
 	if cfg.EnemySpeed < 1 {
@@ -48,6 +49,7 @@ func NewStateWithConfig(cfg StateConfig, initialGrid *maze.Grid) *GameState {
 		EnemySpeed:     cfg.EnemySpeed,
 		DockerStatus:   "docker: unknown",
 		DockerError:    "",
+		ShootCooldown:  5, // Cooldown between shots (in ticks)
 	}
 
 	// Initialize chunk manager if locations are specified

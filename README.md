@@ -7,6 +7,7 @@ Terminal Pacman game that maps running Docker containers to enemies. When you ki
 - Terminal-based Pacman with procedurally generated mazes
 - Each running Docker container spawns an enemy ghost
 - Collision with enemies kills both and removes the container
+- **Shooting**: Fire bullets to kill enemies from a distance (also removes containers)
 - **SARSA reinforcement learning**: Enemies learn to chase you over time
 
 ## Run
@@ -25,6 +26,7 @@ script -q /dev/null go run ./cmd/pacman --width 80 --height 30
 ## Controls
 
 - Arrow keys or WASD to move
+- Spacebar to shoot (fires in direction of last movement)
 - Q to quit
 
 ## AI Modes
