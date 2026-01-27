@@ -35,8 +35,9 @@ game.log
 .DS_Store
 Thumbs.db
 
-# OpenCode files
-.opencode/
+# OpenCode files (except agents which are version-controlled)
+.opencode/*
+!.opencode/agents/
 
 # Build output
 /pacman
