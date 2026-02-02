@@ -155,6 +155,93 @@ The Q-Table is saved to `~/.pacman-pod-killer/qtable.json`, so enemies get smart
 - All learned state-action values
 - Automatic reset on version mismatch
 
+### AI Metrics and Progress Tracking
+
+The AI system tracks learning statistics and displays them in the status bar.
+
+#### Metrics File
+
+Metrics are saved to `~/.pacman-pod-killer/metrics.json` (configurable via `--metrics` flag):
+
+```json
+{
+  "total_states_explored": 1250,
+  "total_bullets_dodged": 45,
+  "total_games_played": 10
+}
+```
+
+Tracked metrics:
+- **States explored**: Unique states encountered across all sessions (~1.6M possible)
+- **Bullets dodged**: Count of successful bullet avoidance maneuvers
+- **Games played**: Number of game sessions
+
+#### Adaptive Precision Display
+
+The status bar shows AI progress with adaptive precision:
+
+| Exploration | Display Format | Example |
+|-------------|----------------|---------|
+| >= 0.1% | 1 decimal place | `AI:12.5% dodged:45` |
+| 0.0001% - 0.1% | 4 decimal places | `AI:0.0061% dodged:0` |
+| < 0.0001% | Raw count | `AI:42/1638400 dodged:0` |
+
+This ensures users see meaningful progress from the very first state explored.
+
+#### Bullet Dodge Detection
+
+A bullet dodge is recorded when:
+1. Bullet is within 7 cells in a cardinal direction
+2. Bullet is moving toward the enemy
+3. Enemy chooses a different direction (not toward the bullet)
+
+The dodge counter appears in the status bar as `dodged:N`.
+
+### Debug Logging
+
+Enable detailed AI decision logging with the `--debug` flag:
+
+```bash
+go run ./cmd/pacman --debug
+```
+
+#### DecisionInfo Structure
+
+Each AI decision produces a `DecisionInfo` struct with detailed information:
+
+```go
+type DecisionInfo struct {
+    EnemyID         string           // Enemy identifier
+    EnemyPos        struct{X, Y int} // Grid coordinates
+    StateKey        StateKey         // Encoded state identifier
+    Action          Action           // Chosen direction
+    ActionName      string           // "UP", "DOWN", "LEFT", "RIGHT"
+    IsExploratory   bool             // Random choice (epsilon-greedy)
+    BulletsDetected [4]bool          // Threats from up/down/left/right
+    OpenSpaces      [4]int           // Walkable cells (0-3) each direction
+    QValues         [4]float64       // Q-values for all actions
+    RewardBreakdown map[string]float64 // Component rewards
+    IsNewState      bool             // First time seeing this state
+    DodgedBullet    bool             // Avoided bullet this turn
+}
+```
+
+Use `FormatDecisionInfo(info)` for human-readable output:
+
+```
+Enemy at (10,5) state=12345 action=UP new=true dodged=true 
+bullets=[true,false,false,false] reward=map[step_penalty:-0.1 bullet_threat:-8.0]
+```
+
+#### Logged Events
+
+When debug mode is enabled:
+- Every enemy decision (state, action, Q-values, rewards)
+- Bullet threats detected from each direction
+- New state discoveries (`Enemy X discovered new state Y`)
+- Bullet dodges (`Enemy X dodged bullet!`)
+- Reward breakdowns showing why actions were chosen
+
 ## Visual Flow
 
 ```
@@ -193,6 +280,7 @@ The Q-Table is saved to `~/.pacman-pod-killer/qtable.json`, so enemies get smart
 | `internal/ai/sarsa.go` | The learning algorithm and decision-making |
 | `internal/ai/bullet.go` | Bullet detection for threat avoidance |
 | `internal/ai/openspace.go` | Open space evaluation for dead-end avoidance |
+| `internal/ai/metrics.go` | AI performance tracking and persistence |
 | `internal/ai/sarsa_test.go` | Unit tests for the AI system |
 
 ## Configuration Flags
@@ -203,6 +291,8 @@ The Q-Table is saved to `~/.pacman-pod-killer/qtable.json`, so enemies get smart
 | `--training` | `true` | Enable SARSA training (updates Q-table) |
 | `--epsilon` | `0.1` | Exploration rate (0.0-1.0) |
 | `--qtable` | `~/.pacman-pod-killer/qtable.json` | Path to Q-table file |
+| `--metrics` | `~/.pacman-pod-killer/metrics.json` | Path to AI metrics file |
+| `--debug` | `false` | Enable detailed AI decision logging |
 
 ## Tips
 
@@ -212,3 +302,6 @@ The Q-Table is saved to `~/.pacman-pod-killer/qtable.json`, so enemies get smart
 - Use `--ai-mode=random` if you want simple, non-learning enemies
 - Enemies will learn to dodge bullets and avoid dead-ends over time
 - The 7-cell bullet detection range gives enemies time to react without overreacting to distant threats
+- Use `--debug` to see detailed AI decision-making in real-time
+- Watch the status bar `AI:X%` to track learning progress across sessions
+- The `dodged:N` counter shows how well enemies are learning bullet avoidance

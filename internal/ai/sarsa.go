@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 
@@ -26,6 +27,22 @@ const (
 	DefaultEpsilon = 0.1  // Exploration rate (10% random actions)
 )
 
+// DecisionInfo provides detailed information about an AI decision for debugging
+type DecisionInfo struct {
+	EnemyID         string
+	EnemyPos        struct{ X, Y int }
+	StateKey        StateKey
+	Action          Action
+	ActionName      string
+	IsExploratory   bool
+	BulletsDetected [4]bool // up, down, left, right
+	OpenSpaces      [4]int  // up, down, left, right
+	QValues         [4]float64
+	RewardBreakdown map[string]float64
+	IsNewState      bool
+	DodgedBullet    bool
+}
+
 // SARSA implements the SARSA on-policy reinforcement learning agent
 type SARSA struct {
 	qTable   *QTable
@@ -34,6 +51,8 @@ type SARSA struct {
 	epsilon  float64 // Exploration rate
 	training bool    // Whether to update Q-table
 	rng      *rand.Rand
+	metrics  *Metrics // Performance tracking
+	debug    bool     // Enable debug mode
 }
 
 // SARSAConfig holds configuration for the SARSA agent
@@ -43,6 +62,8 @@ type SARSAConfig struct {
 	Epsilon  float64
 	Training bool
 	QTable   *QTable
+	Metrics  *Metrics
+	Debug    bool
 }
 
 // NewSARSA creates a new SARSA agent with the given configuration
@@ -59,6 +80,9 @@ func NewSARSA(cfg SARSAConfig) *SARSA {
 	if cfg.QTable == nil {
 		cfg.QTable = NewQTable()
 	}
+	if cfg.Metrics == nil {
+		cfg.Metrics = NewMetrics()
+	}
 
 	return &SARSA{
 		qTable:   cfg.QTable,
@@ -67,6 +91,8 @@ func NewSARSA(cfg SARSAConfig) *SARSA {
 		epsilon:  cfg.Epsilon,
 		training: cfg.Training,
 		rng:      rand.New(rand.NewSource(rand.Int63())),
+		metrics:  cfg.Metrics,
+		debug:    cfg.Debug,
 	}
 }
 
@@ -78,7 +104,24 @@ func NewSARSADefault(training bool) *SARSA {
 		Epsilon:  DefaultEpsilon,
 		Training: training,
 		QTable:   NewQTable(),
+		Metrics:  NewMetrics(),
+		Debug:    false,
 	})
+}
+
+// SetDebug enables or disables debug mode
+func (s *SARSA) SetDebug(debug bool) {
+	s.debug = debug
+}
+
+// SetMetrics sets the metrics tracker
+func (s *SARSA) SetMetrics(metrics *Metrics) {
+	s.metrics = metrics
+}
+
+// GetMetrics returns the metrics tracker
+func (s *SARSA) GetMetrics() *Metrics {
+	return s.metrics
 }
 
 // SetEpsilon updates the exploration rate
@@ -123,11 +166,7 @@ type EnemyState struct {
 	Initialized  bool
 }
 
-// Step performs one SARSA step for an enemy:
-// 1. Observe current state
-// 2. Choose action (epsilon-greedy)
-// 3. If this is not the first step, update Q-value for the previous state-action
-// 4. Return the action to take
+// Step performs one SARSA step for an enemy and returns decision info
 func (s *SARSA) Step(
 	enemyX, enemyY int,
 	playerX, playerY int,
@@ -135,7 +174,7 @@ func (s *SARSA) Step(
 	grid *maze.Grid,
 	enemyState *EnemyState,
 	caughtPlayer bool,
-) (dx, dy int) {
+) (dx, dy int, info DecisionInfo) {
 	// Create canMove function for state computation
 	canMove := func(fromX, fromY, toX, toY int) bool {
 		return grid.CanMove(fromX, fromY, toX, toY)
@@ -147,13 +186,43 @@ func (s *SARSA) Step(
 	// Compute current state with bullet and open space info
 	currentState := NewState(enemyX, enemyY, playerX, playerY, canMove, bullets, openSpaces)
 	currentDistance := distance(enemyX, enemyY, playerX, playerY)
+	currentKey := currentState.ToKey()
+
+	// Get Q-values for all actions
+	qVals := s.qTable.Get(currentState)
 
 	// Choose action for current state
-	action, _ := s.ChooseAction(currentState)
+	action, isExploratory := s.ChooseAction(currentState)
+
+	// Track bullet detection
+	threats := DetectBulletThreat(enemyX, enemyY, bullets)
+
+	// Determine if we dodged a bullet
+	// A dodge happens when:
+	// 1. There's a bullet threat at the current position
+	// 2. The enemy chooses an action that moves AWAY from the threat (perpendicular or opposite)
+	dodgedBullet := false
+	if currentState.BulletUp && action != ActionUp {
+		// Bullet coming from up, enemy chose not to go up = dodge
+		dodgedBullet = true
+	}
+	if currentState.BulletDown && action != ActionDown {
+		// Bullet coming from down, enemy chose not to go down = dodge
+		dodgedBullet = true
+	}
+	if currentState.BulletLeft && action != ActionLeft {
+		// Bullet coming from left, enemy chose not to go left = dodge
+		dodgedBullet = true
+	}
+	if currentState.BulletRight && action != ActionRight {
+		// Bullet coming from right, enemy chose not to go right = dodge
+		dodgedBullet = true
+	}
 
 	// If training and we have a previous state, do SARSA update
+	isNewState := false
 	if s.training && enemyState.Initialized {
-		reward := s.computeReward(
+		reward, rewardBreakdown := s.computeRewardWithBreakdown(
 			enemyState.LastDistance,
 			currentDistance,
 			caughtPlayer,
@@ -165,7 +234,51 @@ func (s *SARSA) Step(
 		// SARSA update: Q(s,a) += alpha * [r + gamma * Q(s',a') - Q(s,a)]
 		nextQ := s.qTable.GetAction(currentState, action)
 		target := reward + s.gamma*nextQ
-		s.qTable.Update(enemyState.LastState, enemyState.LastAction, s.alpha, target)
+
+		// Update and check if this was a new state
+		isNewState = s.qTable.UpdateAndCheckNew(enemyState.LastState, enemyState.LastAction, s.alpha, target)
+
+		// Record metrics
+		if s.metrics != nil {
+			s.metrics.RecordStateExplored(currentKey, isNewState)
+			if dodgedBullet {
+				s.metrics.RecordBulletDodged()
+			}
+		}
+
+		// Populate decision info
+		info = DecisionInfo{
+			EnemyPos:        struct{ X, Y int }{enemyX, enemyY},
+			StateKey:        currentKey,
+			Action:          action,
+			ActionName:      actionToString(action),
+			IsExploratory:   isExploratory,
+			BulletsDetected: threats,
+			OpenSpaces:      openSpaces,
+			QValues:         qVals,
+			RewardBreakdown: rewardBreakdown,
+			IsNewState:      isNewState,
+			DodgedBullet:    dodgedBullet,
+		}
+	} else {
+		// First step - just populate basic info
+		info = DecisionInfo{
+			EnemyPos:        struct{ X, Y int }{enemyX, enemyY},
+			StateKey:        currentKey,
+			Action:          action,
+			ActionName:      actionToString(action),
+			IsExploratory:   isExploratory,
+			BulletsDetected: threats,
+			OpenSpaces:      openSpaces,
+			QValues:         qVals,
+			IsNewState:      true,
+			DodgedBullet:    false,
+		}
+
+		// Record initial state
+		if s.metrics != nil {
+			s.metrics.RecordStateExplored(currentKey, true)
+		}
 	}
 
 	// Store current state/action for next step
@@ -174,44 +287,87 @@ func (s *SARSA) Step(
 	enemyState.LastDistance = currentDistance
 	enemyState.Initialized = true
 
-	// Return movement delta
+	// Return movement delta and decision info
 	delta := ActionDeltas[action]
-	return delta[0], delta[1]
+	return delta[0], delta[1], info
 }
 
-// computeReward calculates the reward for a state transition
+func actionToString(a Action) string {
+	switch a {
+	case ActionUp:
+		return "UP"
+	case ActionDown:
+		return "DOWN"
+	case ActionLeft:
+		return "LEFT"
+	case ActionRight:
+		return "RIGHT"
+	}
+	return "UNKNOWN"
+}
+
+// computeRewardWithBreakdown calculates reward and returns breakdown for debugging
+func (s *SARSA) computeRewardWithBreakdown(
+	prevDistance, currentDistance float64,
+	caughtPlayer bool,
+	action Action,
+	prevState, nextState State,
+) (float64, map[string]float64) {
+	breakdown := make(map[string]float64)
+	reward := RewardStepPenalty
+	breakdown["step_penalty"] = RewardStepPenalty
+
+	if caughtPlayer {
+		reward += RewardCatchPlayer
+		breakdown["catch_player"] = RewardCatchPlayer
+		return reward, breakdown
+	}
+
+	// Check if the action was valid
+	if !prevState.CanTakeAction(action) {
+		reward += RewardHitWall
+		breakdown["hit_wall"] = RewardHitWall
+		return reward, breakdown
+	}
+
+	// Reward based on distance change
+	if currentDistance < prevDistance {
+		reward += RewardMoveCloser
+		breakdown["move_closer"] = RewardMoveCloser
+	} else if currentDistance > prevDistance {
+		reward += RewardMoveFarther
+		breakdown["move_farther"] = RewardMoveFarther
+	}
+
+	// Bullet threat avoidance
+	bulletReward := s.computeBulletThreatReward(action, prevState)
+	if bulletReward != 0 {
+		reward += bulletReward
+		breakdown["bullet_threat"] = bulletReward
+	}
+
+	// Open space preference
+	spaceReward := s.computeOpenSpaceReward(action, prevState, nextState)
+	if spaceReward != 0 {
+		reward += spaceReward
+		if spaceReward < 0 {
+			breakdown["dead_end"] = spaceReward
+		} else {
+			breakdown["open_space"] = spaceReward
+		}
+	}
+
+	return reward, breakdown
+}
+
+// computeReward calculates the reward for a state transition (legacy version)
 func (s *SARSA) computeReward(
 	prevDistance, currentDistance float64,
 	caughtPlayer bool,
 	action Action,
 	prevState, nextState State,
 ) float64 {
-	reward := RewardStepPenalty // Base step penalty
-
-	if caughtPlayer {
-		reward += RewardCatchPlayer
-		return reward
-	}
-
-	// Check if the action was valid
-	if !prevState.CanTakeAction(action) {
-		reward += RewardHitWall
-		return reward
-	}
-
-	// Reward based on distance change
-	if currentDistance < prevDistance {
-		reward += RewardMoveCloser
-	} else if currentDistance > prevDistance {
-		reward += RewardMoveFarther
-	}
-
-	// Bullet threat avoidance: check if we're moving toward a bullet
-	reward += s.computeBulletThreatReward(action, prevState)
-
-	// Open space preference: reward moving toward more open areas
-	reward += s.computeOpenSpaceReward(action, prevState, nextState)
-
+	reward, _ := s.computeRewardWithBreakdown(prevDistance, currentDistance, caughtPlayer, action, prevState, nextState)
 	return reward
 }
 
@@ -239,11 +395,9 @@ func (s *SARSA) computeBulletThreatReward(action Action, state State) float64 {
 }
 
 // computeOpenSpaceReward rewards moving toward more open space
-// and penalizes entering dead-ends (0 open cells in that direction)
 func (s *SARSA) computeOpenSpaceReward(action Action, prevState, nextState State) float64 {
 	reward := 0.0
 
-	// Reward based on open space in the direction we're moving
 	switch action {
 	case ActionUp:
 		if nextState.OpenUp == 0 {
@@ -282,22 +436,18 @@ func distance(x1, y1, x2, y2 int) float64 {
 }
 
 // NextStep implements a simple interface compatible with how Random AI is called
-// This is a stateless call that doesn't do learning - use Step() for full SARSA
 func (s *SARSA) NextStep(grid *maze.Grid, enemyX, enemyY, playerX, playerY int) (int, int) {
 	canMove := func(fromX, fromY, toX, toY int) bool {
 		return grid.CanMove(fromX, fromY, toX, toY)
 	}
 
-	// Get open spaces (no bullets passed - this is stateless inference)
 	openSpaces := CountOpenSpace(grid, enemyX, enemyY)
 	var emptyBullets []BulletInfo
 
 	state := NewState(enemyX, enemyY, playerX, playerY, canMove, emptyBullets, openSpaces)
 	action, _ := s.ChooseAction(state)
 
-	// Validate action is possible
 	if !state.CanTakeAction(action) {
-		// Fall back to any available action
 		available := state.AvailableActions()
 		if len(available) > 0 {
 			action = available[0]
@@ -311,7 +461,6 @@ func (s *SARSA) NextStep(grid *maze.Grid, enemyX, enemyY, playerX, playerY int) 
 }
 
 // HandlePlayerCaught should be called when an enemy catches the player
-// This gives the final reward for the catching enemy
 func (s *SARSA) HandlePlayerCaught(enemyState *EnemyState, grid *maze.Grid, enemyX, enemyY, playerX, playerY int) {
 	if !s.training || !enemyState.Initialized {
 		return
@@ -321,29 +470,23 @@ func (s *SARSA) HandlePlayerCaught(enemyState *EnemyState, grid *maze.Grid, enem
 		return grid.CanMove(fromX, fromY, toX, toY)
 	}
 
-	// Get open spaces for terminal state
 	openSpaces := CountOpenSpace(grid, enemyX, enemyY)
 	var emptyBullets []BulletInfo
 
-	// Compute terminal state
 	currentState := NewState(enemyX, enemyY, playerX, playerY, canMove, emptyBullets, openSpaces)
 	action, _ := s.ChooseAction(currentState)
 
-	// Final SARSA update with catch reward
 	reward := s.computeReward(
 		enemyState.LastDistance,
-		0, // Distance is 0 when caught
+		0,
 		true,
 		enemyState.LastAction,
 		enemyState.LastState,
 		currentState,
 	)
 
-	// Terminal state has Q=0 for next state
 	target := reward + s.gamma*0
 	s.qTable.Update(enemyState.LastState, enemyState.LastAction, s.alpha, target)
-
-	// Also give a small update to the current state for reaching the goal
 	s.qTable.Update(currentState, action, s.alpha, RewardCatchPlayer)
 }
 
@@ -353,7 +496,19 @@ func (s *SARSA) Stats() (numStates int, avgQValue float64) {
 	if numStates == 0 {
 		return 0, 0
 	}
-
-	// This is a simple stat, could be expanded
 	return numStates, 0
+}
+
+// FormatDecisionInfo returns a human-readable string of decision info for logging
+func FormatDecisionInfo(info DecisionInfo) string {
+	return fmt.Sprintf(
+		"Enemy at (%d,%d) state=%d action=%s new=%v dodged=%v bullets=[%v,%v,%v,%v] reward=%+v",
+		info.EnemyPos.X, info.EnemyPos.Y,
+		info.StateKey,
+		info.ActionName,
+		info.IsNewState,
+		info.DodgedBullet,
+		info.BulletsDetected[0], info.BulletsDetected[1], info.BulletsDetected[2], info.BulletsDetected[3],
+		info.RewardBreakdown,
+	)
 }

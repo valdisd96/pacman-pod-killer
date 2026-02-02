@@ -108,6 +108,7 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - `--training`: enable SARSA training mode (default true).
 - `--epsilon`: SARSA exploration rate 0.0-1.0 (default 0.1).
 - `--qtable`: path to Q-table file (default ~/.pacman-pod-killer/qtable.json).
+- `--metrics`: path to AI metrics file (default ~/.pacman-pod-killer/metrics.json).
 
 ### Logging and output
 - Avoid stdout spam; keep warnings concise.
@@ -149,6 +150,52 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - Helps enemies avoid getting trapped and prefer escape routes.
 - Used in reward calculation to discourage entering dead-ends (0 open cells).
 
+### AI Metrics and Logging (internal/ai/metrics.go)
+
+The AI system tracks learning progress and displays it in the status bar.
+
+#### Metrics Persistence
+- Metrics saved to `~/.pacman-pod-killer/metrics.json` (configurable via `--metrics` flag).
+- Tracks: `total_states_explored`, `total_bullets_dodged`, `total_games_played`.
+- Persists across game sessions; session stats reset on each launch.
+
+#### Adaptive Precision Display
+The status bar shows AI intelligence with adaptive precision based on exploration progress:
+- **Percentage >= 0.1%**: Shows 1 decimal place (e.g., `AI:12.5% dodged:45`).
+- **Percentage 0.0001% - 0.1%**: Shows 4 decimal places (e.g., `AI:0.0061% dodged:0`).
+- **Percentage < 0.0001%**: Shows raw count (e.g., `AI:42/1638400 dodged:0`).
+
+This allows users to see learning progress from the very first state explored.
+
+#### Bullet Dodge Detection
+- A dodge is recorded when: bullet within 7 cells AND moving toward enemy AND enemy chooses a different direction.
+- The dodge counter increments in the status bar (`dodged:N`).
+- Detection uses the current state (not the previous state) to ensure accurate tracking.
+
+#### Debug Logging
+When `--debug` is enabled, the AI logs detailed decision information:
+- State key, enemy position, chosen action.
+- Bullet threats detected (up/down/left/right).
+- Q-values for all actions.
+- Reward breakdown (step penalty, distance change, bullet threat, open space).
+- Whether the state is new (first time encountered).
+- Special events: `Enemy X dodged bullet!` and `Enemy X discovered new state Y`.
+
+#### DecisionInfo Structure (internal/ai/sarsa.go)
+The `DecisionInfo` struct provides detailed information about each AI decision:
+- `EnemyPos`: Enemy coordinates.
+- `StateKey`: Encoded state identifier.
+- `Action`: Chosen action (up/down/left/right).
+- `IsExploratory`: Whether the action was randomly chosen (epsilon-greedy).
+- `BulletsDetected`: Boolean array for threats from each direction.
+- `OpenSpaces`: Count of walkable cells (0-3) in each direction.
+- `QValues`: Q-values for all four actions.
+- `RewardBreakdown`: Map of reward components.
+- `IsNewState`: Whether this state was first encountered this session.
+- `DodgedBullet`: Whether the enemy avoided a bullet threat.
+
+Use `FormatDecisionInfo()` for human-readable logging output.
+
 ### Maze generation
 - Walls are rendered as `#` characters.
 - Floor (walkable areas) are rendered as spaces for a clean look.
@@ -164,7 +211,7 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - `internal/render`: terminal rendering
 - `internal/input`: input reader
 - `internal/dockerwatch`: Docker client/event watcher
-- `internal/ai`: enemy AI (random and SARSA reinforcement learning)
+- `internal/ai`: enemy AI (random and SARSA reinforcement learning, metrics tracking)
 - `internal/logger`: thread-safe file-based logging
 
 ## File boundaries

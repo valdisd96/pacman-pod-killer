@@ -78,6 +78,7 @@ go run ./cmd/pacman --ai-mode random
 | `--training` | true | Enable SARSA learning (updates Q-table) |
 | `--epsilon` | 0.1 | SARSA exploration rate (0.0-1.0) |
 | `--qtable` | ~/.pacman-pod-killer/qtable.json | Path to Q-table file |
+| `--metrics` | ~/.pacman-pod-killer/metrics.json | Path to AI metrics file |
 
 ## SARSA Reinforcement Learning
 
@@ -114,6 +115,38 @@ Up, Down, Left, Right (4 actions)
 - **Version tracking**: Q-table format v2.0 (old v1.0 tables auto-discarded)
 - **Bullet dodging**: Enemies learn to avoid moving toward detected bullet threats
 - **Dead-end avoidance**: Enemies prefer paths with open escape routes
+- **Metrics tracking**: AI progress displayed in status bar with adaptive precision
+- **Debug logging**: Use `--debug` flag to see detailed AI decision information
+
+### AI Metrics Display
+
+The status bar shows real-time AI learning progress:
+
+```
+location:victim1 kills:0 enemies:0 tick:10059 docker: connected AI:0.0061% dodged:0
+```
+
+The display uses adaptive precision:
+- **High exploration (>=0.1%)**: Shows 1 decimal (e.g., `AI:12.5%`)
+- **Early learning (0.0001%-0.1%)**: Shows 4 decimals (e.g., `AI:0.0061%`)
+- **Just starting (<0.0001%)**: Shows raw count (e.g., `AI:42/1638400`)
+
+The `dodged:N` counter tracks how many times enemies successfully avoided bullets.
+
+### Debug Mode
+
+Enable detailed AI logging with the `--debug` flag:
+
+```bash
+go run ./cmd/pacman --debug
+```
+
+This logs:
+- Each enemy's decision (state, action, Q-values)
+- Bullet threats detected and dodged
+- Reward breakdown for each move
+- New state discoveries
+- Special events like bullet dodges
 
 ## Warning
 

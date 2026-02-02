@@ -69,6 +69,20 @@ func (q *QTable) Update(s State, a Action, alpha, target float64) {
 	q.values[key] = vals
 }
 
+// UpdateAndCheckNew applies SARSA update and returns true if state was newly discovered
+func (q *QTable) UpdateAndCheckNew(s State, a Action, alpha, target float64) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	key := s.ToKey()
+	_, existed := q.values[key]
+	vals := q.values[key]
+	vals[a] += alpha * (target - vals[a])
+	q.values[key] = vals
+
+	return !existed
+}
+
 // Size returns the number of states in the Q-table
 func (q *QTable) Size() int {
 	q.mu.RLock()

@@ -29,22 +29,23 @@ type PortalInfo struct {
 }
 
 type Frame struct {
-	Maze            maze.Grid
-	PlayerX         int // Logical X coordinate
-	PlayerY         int // Logical Y coordinate
-	PlayerLive      bool
-	Enemies         []Position   // Logical coordinates
-	Bullets         []Position   // Bullet positions (logical coordinates)
-	Portals         []PortalInfo // Portal positions to render
-	Seed            int64
-	Tick            int64
-	DockerInfo      string
-	DockerErr       string
-	CurrentLocation string // Current location name (empty if no locations)
-	TotalLocations  int    // Total number of locations (0 if no locations)
-	GameWon         bool   // True if player reached the final exit
-	EnemiesKilled   int    // Total enemies killed
-	PlayerDeaths    int    // Total player deaths
+	Maze             maze.Grid
+	PlayerX          int // Logical X coordinate
+	PlayerY          int // Logical Y coordinate
+	PlayerLive       bool
+	Enemies          []Position   // Logical coordinates
+	Bullets          []Position   // Bullet positions (logical coordinates)
+	Portals          []PortalInfo // Portal positions to render
+	Seed             int64
+	Tick             int64
+	DockerInfo       string
+	DockerErr        string
+	CurrentLocation  string // Current location name (empty if no locations)
+	TotalLocations   int    // Total number of locations (0 if no locations)
+	GameWon          bool   // True if player reached the final exit
+	EnemiesKilled    int    // Total enemies killed
+	PlayerDeaths     int    // Total player deaths
+	AIMetricsDisplay string // AI intelligence metrics display string
 }
 
 type Position struct {
@@ -104,12 +105,17 @@ func (renderer *Renderer) Draw(frame Frame) error {
 
 	// Draw status bar below the maze
 	var status string
+	aiMetrics := ""
+	if frame.AIMetricsDisplay != "" {
+		aiMetrics = " " + frame.AIMetricsDisplay
+	}
+
 	if frame.GameWon {
-		status = fmt.Sprintf("*** YOU WIN! *** kills:%d deaths:%d tick:%d", frame.EnemiesKilled, frame.PlayerDeaths, frame.Tick)
+		status = fmt.Sprintf("*** YOU WIN! *** kills:%d deaths:%d tick:%d%s", frame.EnemiesKilled, frame.PlayerDeaths, frame.Tick, aiMetrics)
 	} else if frame.CurrentLocation != "" {
-		status = fmt.Sprintf("location:%s kills:%d enemies:%d tick:%d %s", frame.CurrentLocation, frame.EnemiesKilled, len(frame.Enemies), frame.Tick, frame.DockerInfo)
+		status = fmt.Sprintf("location:%s kills:%d enemies:%d tick:%d %s%s", frame.CurrentLocation, frame.EnemiesKilled, len(frame.Enemies), frame.Tick, frame.DockerInfo, aiMetrics)
 	} else {
-		status = fmt.Sprintf("seed:%d enemies:%d tick:%d %s", frame.Seed, len(frame.Enemies), frame.Tick, frame.DockerInfo)
+		status = fmt.Sprintf("seed:%d enemies:%d tick:%d %s%s", frame.Seed, len(frame.Enemies), frame.Tick, frame.DockerInfo, aiMetrics)
 	}
 	for i, r := range status {
 		renderer.screen.SetContent(i, frame.Maze.Height, r, nil, renderer.style)

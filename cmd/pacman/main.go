@@ -44,6 +44,7 @@ func main() {
 	training := flag.Bool("training", true, "enable SARSA training mode (updates Q-table)")
 	epsilon := flag.Float64("epsilon", defaultEpsilon, "SARSA exploration rate 0.0-1.0")
 	qtablePath := flag.String("qtable", ai.DefaultQTablePath(), "path to Q-table file")
+	metricsPath := flag.String("metrics", ai.DefaultMetricsPath(), "path to AI metrics file")
 
 	// Location flags for level-based gameplay
 	locations := flag.String("locations", defaultLocations, "comma-separated list of location patterns (e.g., 'location1,location2,location3')")
@@ -169,6 +170,7 @@ func main() {
 	var sarsaAI *ai.SARSA
 	var selectedAIMode game.AIMode
 
+	var metrics *ai.Metrics
 	if *aiMode == "sarsa" {
 		selectedAIMode = game.AIModeSARSA
 		// Load existing Q-table or create new one
@@ -180,14 +182,28 @@ func main() {
 			log.Info("Loaded Q-table with %d states from %s", qTable.Size(), *qtablePath)
 		}
 
+		// Load existing metrics or create new
+		metrics, err = ai.LoadMetrics(*metricsPath)
+		if err != nil {
+			log.Error("Failed to load metrics from %s: %v (starting fresh)", *metricsPath, err)
+			metrics = ai.NewMetrics()
+		} else {
+			explored, total, pct := metrics.GetExplorationStats()
+			log.Info("Loaded metrics: %d/%d states explored (%.2f%%), %d bullets dodged",
+				explored, total, pct, metrics.TotalBulletsDodged)
+		}
+		metrics.RecordGameStart()
+
 		sarsaAI = ai.NewSARSA(ai.SARSAConfig{
 			Alpha:    ai.DefaultAlpha,
 			Gamma:    ai.DefaultGamma,
 			Epsilon:  *epsilon,
 			Training: *training,
 			QTable:   qTable,
+			Metrics:  metrics,
+			Debug:    *debug,
 		})
-		log.Info("SARSA AI initialized: training=%v epsilon=%.2f", *training, *epsilon)
+		log.Info("SARSA AI initialized: training=%v epsilon=%.2f debug=%v", *training, *epsilon, *debug)
 	} else {
 		selectedAIMode = game.AIModeRandom
 		log.Info("Random AI initialized")
@@ -203,18 +219,31 @@ func main() {
 		EnemyEvents: enemyChan,
 		Docker:      dockerClient,
 		Log:         log,
+		Debug:       *debug,
 	})
 
 	ticker := time.NewTicker(time.Duration(*tickMillis) * time.Millisecond)
 	defer ticker.Stop()
 
-	// Save Q-table on exit
+	// Save Q-table and metrics on exit
 	defer func() {
 		if sarsaAI != nil && *training {
 			if err := controller.SaveQTable(*qtablePath); err != nil {
 				log.Error("Failed to save Q-table: %v", err)
 			} else {
 				log.Info("Saved Q-table to %s (%d states)", *qtablePath, sarsaAI.QTable().Size())
+			}
+
+			// Save metrics
+			if metrics != nil {
+				if err := metrics.Save(*metricsPath); err != nil {
+					log.Error("Failed to save metrics: %v", err)
+				} else {
+					explored, total, pct := metrics.GetExplorationStats()
+					newStates, sessionDodges := metrics.GetSessionStats()
+					log.Info("Saved metrics to %s: %d/%d states (%.2f%%), %d total dodges, session: +%d states, +%d dodges",
+						*metricsPath, explored, total, pct, metrics.TotalBulletsDodged, newStates, sessionDodges)
+				}
 			}
 		}
 	}()

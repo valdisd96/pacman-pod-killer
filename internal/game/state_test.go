@@ -182,7 +182,7 @@ func TestBuildFrame(t *testing.T) {
 		{Position: Position{X: 5, Y: 5}, Alive: false}, // Dead bullet
 	}
 
-	frame := BuildFrame(state)
+	frame := BuildFrame(state, nil)
 
 	if frame.PlayerX != state.Player.X {
 		t.Error("Frame should have correct player X")

@@ -1,8 +1,11 @@
 package game
 
-import "pacman-pod-killer/internal/render"
+import (
+	"pacman-pod-killer/internal/ai"
+	"pacman-pod-killer/internal/render"
+)
 
-func BuildFrame(state *GameState) render.Frame {
+func BuildFrame(state *GameState, metrics *ai.Metrics) render.Frame {
 	frame := render.Frame{
 		Maze:            state.Maze,
 		PlayerX:         state.Player.X,
@@ -16,6 +19,11 @@ func BuildFrame(state *GameState) render.Frame {
 		GameWon:         state.GameWon,
 		EnemiesKilled:   state.EnemiesKilled,
 		PlayerDeaths:    state.PlayerDeaths,
+	}
+
+	// Add AI metrics if available
+	if metrics != nil {
+		frame.AIMetricsDisplay = metrics.GetDisplayString()
 	}
 
 	// Set total locations and portals if chunk manager is active
