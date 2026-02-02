@@ -170,3 +170,23 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - The game deletes running containers on enemy death. Warn users at startup.
 - Keep the tick loop responsive; avoid blocking calls.
 - Ensure terminal state is restored on exit.
+
+## Testing Subagent (OpenCode)
+- The repository includes a `tester` subagent configured in `.opencode/agents/tester.md`
+- The tester agent automatically:
+  - Runs unit tests (`go test ./...`)
+  - Checks code quality (`go vet`, `gofmt`)
+  - Identifies untested public functions
+  - Generates missing tests for new code
+  - Suggests fixes when tests fail
+- Test files follow the pattern `*_test.go` in the same package as source code
+- Use table-driven tests (see `internal/ai/sarsa_test.go` for examples)
+- Current test coverage:
+  - `internal/ai`: 53.1%
+  - `internal/game`: 19.5%
+  - `internal/input`: 46.9%
+  - `internal/logger`: 100.0%
+  - `internal/maze`: 68.4%
+  - `internal/dockerwatch`: 0% (mock-based tests needed)
+  - `internal/render`: 0% (terminal UI tests)
+  - `cmd/pacman`: 0% (entry point)
