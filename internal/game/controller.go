@@ -30,6 +30,7 @@ type Controller struct {
 	docker      *dockerwatch.Client
 	rng         *rand.Rand
 	log         *logger.Logger
+	debug       bool
 }
 
 // ControllerConfig holds configuration for the game controller
@@ -43,6 +44,7 @@ type ControllerConfig struct {
 	EnemyEvents <-chan dockerwatch.Event
 	Docker      *dockerwatch.Client
 	Log         *logger.Logger
+	Debug       bool
 }
 
 // NewController creates a new game controller
@@ -63,6 +65,7 @@ func NewController(cfg ControllerConfig) *Controller {
 		docker:      cfg.Docker,
 		rng:         rng,
 		log:         cfg.Log,
+		debug:       cfg.Debug,
 	}
 }
 
@@ -93,7 +96,13 @@ func (controller *Controller) Tick() error {
 		controller.tryRespawn()
 	}
 
-	return controller.renderer.Draw(BuildFrame(controller.state))
+	// Get metrics from SARSA AI if available
+	var metrics *ai.Metrics
+	if controller.sarsaAI != nil {
+		metrics = controller.sarsaAI.GetMetrics()
+	}
+
+	return controller.renderer.Draw(BuildFrame(controller.state, metrics))
 }
 
 func (controller *Controller) handleInput() error {
@@ -180,6 +189,23 @@ func (controller *Controller) filterDeadBullets() {
 		}
 	}
 	controller.state.Bullets = alive
+}
+
+// convertBulletsToInfo converts game bullets to ai.BulletInfo for AI processing
+func (controller *Controller) convertBulletsToInfo() []ai.BulletInfo {
+	bulletInfos := make([]ai.BulletInfo, 0, len(controller.state.Bullets))
+	for _, bullet := range controller.state.Bullets {
+		if bullet.Alive {
+			bulletInfos = append(bulletInfos, ai.BulletInfo{
+				X:     bullet.Position.X,
+				Y:     bullet.Position.Y,
+				DirX:  bullet.Direction.X,
+				DirY:  bullet.Direction.Y,
+				Alive: bullet.Alive,
+			})
+		}
+	}
+	return bulletInfos
 }
 
 func (controller *Controller) resolveBulletCollisions() {
@@ -321,15 +347,35 @@ func (controller *Controller) moveEnemies() {
 		}
 
 		var dx, dy int
+		var decisionInfo ai.DecisionInfo
+
 		if controller.aiMode == AIModeSARSA && controller.sarsaAI != nil {
-			// Use SARSA with learning
-			dx, dy = controller.sarsaAI.Step(
+			// Convert game bullets to ai.BulletInfo
+			bulletInfos := controller.convertBulletsToInfo()
+
+			// Use SARSA with learning - now returns decision info
+			dx, dy, decisionInfo = controller.sarsaAI.Step(
 				enemy.Position.X, enemy.Position.Y,
 				controller.state.Player.X, controller.state.Player.Y,
+				bulletInfos,
 				&controller.state.Maze,
 				&enemy.SARSAState,
 				false, // not caught yet
 			)
+
+			// Log detailed decision info in debug mode
+			if controller.debug && controller.log.Enabled() {
+				decisionInfo.EnemyID = enemy.ID
+				controller.log.Debug("[AI] %s", ai.FormatDecisionInfo(decisionInfo))
+
+				// Log special events
+				if decisionInfo.DodgedBullet {
+					controller.log.Info("[AI] Enemy %s dodged bullet!", enemy.ID)
+				}
+				if decisionInfo.IsNewState {
+					controller.log.Debug("[AI] Enemy %s discovered new state %d", enemy.ID, decisionInfo.StateKey)
+				}
+			}
 		} else {
 			// Use random AI
 			dx, dy = controller.randomAI.NextStep(&controller.state.Maze, enemy.Position.X, enemy.Position.Y)

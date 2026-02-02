@@ -69,12 +69,31 @@ func (q *QTable) Update(s State, a Action, alpha, target float64) {
 	q.values[key] = vals
 }
 
+// UpdateAndCheckNew applies SARSA update and returns true if state was newly discovered
+func (q *QTable) UpdateAndCheckNew(s State, a Action, alpha, target float64) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	key := s.ToKey()
+	_, existed := q.values[key]
+	vals := q.values[key]
+	vals[a] += alpha * (target - vals[a])
+	q.values[key] = vals
+
+	return !existed
+}
+
 // Size returns the number of states in the Q-table
 func (q *QTable) Size() int {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 	return len(q.values)
 }
+
+// QTableVersion is the current version of the Q-table format
+// Version 1: Original state (400 states) - player position + wall sensors
+// Version 2: Enhanced state (~1.6M states) - adds bullet threats + open space
+const QTableVersion = "2.0"
 
 // QTableJSON is the serializable format for the Q-table
 type QTableJSON struct {
@@ -95,7 +114,7 @@ func (q *QTable) Save(path string) error {
 
 	// Convert to serializable format
 	data := QTableJSON{
-		Version: "1.0",
+		Version: QTableVersion,
 		States:  make(map[string][NumActions]float64),
 	}
 
@@ -137,6 +156,13 @@ func LoadQTable(path string) (*QTable, error) {
 	var data QTableJSON
 	if err := json.NewDecoder(f).Decode(&data); err != nil {
 		return nil, fmt.Errorf("failed to decode Q-table: %w", err)
+	}
+
+	// Check version - start fresh if version mismatch
+	if data.Version != QTableVersion {
+		// Version mismatch, return empty Q-table
+		// Old state format is incompatible with new features
+		return q, nil
 	}
 
 	// Convert from serializable format

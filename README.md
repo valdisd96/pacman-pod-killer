@@ -9,6 +9,9 @@ Terminal Pacman game that maps running Docker containers to enemies. When you ki
 - Collision with enemies kills both and removes the container
 - **Shooting**: Fire bullets to kill enemies from a distance (also removes containers)
 - **SARSA reinforcement learning**: Enemies learn to chase you over time
+  - Bullet dodging: Enemies detect and avoid approaching bullets
+  - Dead-end avoidance: Enemies prefer escape routes and avoid traps
+  - Collective learning: Shared Q-table across all enemies
 
 ## Run
 
@@ -35,7 +38,11 @@ The game supports two enemy AI modes:
 
 ### SARSA (Default)
 
-Enemies use reinforcement learning to chase the player. They learn from experience and get smarter over time.
+Enemies use reinforcement learning to chase the player. They learn from experience and get smarter over time, with enhanced capabilities:
+
+- **Bullet dodging**: Detects bullets within 7 cells and avoids moving toward them
+- **Dead-end avoidance**: Evaluates open space (0-3 cells) in each direction to avoid getting trapped
+- **Collective intelligence**: All enemies share a single Q-table for faster learning
 
 ```bash
 # Default: SARSA with training enabled
@@ -71,17 +78,75 @@ go run ./cmd/pacman --ai-mode random
 | `--training` | true | Enable SARSA learning (updates Q-table) |
 | `--epsilon` | 0.1 | SARSA exploration rate (0.0-1.0) |
 | `--qtable` | ~/.pacman-pod-killer/qtable.json | Path to Q-table file |
+| `--metrics` | ~/.pacman-pod-killer/metrics.json | Path to AI metrics file |
 
 ## SARSA Reinforcement Learning
 
-The SARSA (State-Action-Reward-State-Action) implementation uses on-policy learning:
+The SARSA (State-Action-Reward-State-Action) implementation uses on-policy learning with enhanced state representation:
 
-- **State**: Relative position to player + available movement directions (~400 states)
-- **Actions**: Up, Down, Left, Right
-- **Rewards**: +100 catch player, +1 move closer, -0.5 move farther, -2 hit wall
-- **Learning**: Q-table saved between sessions for persistent learning
+### State Space (~1.6M states)
 
-All enemies share a single Q-table, so learning from one enemy benefits all others.
+- **Relative position**: Player position relative to enemy (clamped to [-2,+2])
+- **Wall sensors**: Available movement directions (4 boolean values)
+- **Bullet threats**: Detects bullets approaching from up/down/left/right within 7 cells
+- **Open space**: Counts walkable cells (0-3) in each direction to detect dead-ends
+
+### Actions
+
+Up, Down, Left, Right (4 actions)
+
+### Reward Function
+
+| Reward | Value | Description |
+|--------|-------|-------------|
+| Catch player | +100 | Ultimate goal - enemy catches player |
+| Move closer | +1 | Encourages pursuit behavior |
+| Move farther | -0.5 | Discourages fleeing from player |
+| Hit wall | -2 | Punishes invalid move attempts |
+| Step penalty | -0.1 | Encourages efficient paths |
+| Bullet threat | -8 | Strong avoidance of bullets moving toward enemy |
+| Open space | +0.5 per cell | Prefers corridors with escape routes |
+| Dead end | -2 | Penalty for entering trapped positions |
+
+### Learning Features
+
+- **Collective learning**: All enemies share a single Q-table
+- **Persistent learning**: Q-table saved to `~/.pacman-pod-killer/qtable.json` between sessions
+- **Version tracking**: Q-table format v2.0 (old v1.0 tables auto-discarded)
+- **Bullet dodging**: Enemies learn to avoid moving toward detected bullet threats
+- **Dead-end avoidance**: Enemies prefer paths with open escape routes
+- **Metrics tracking**: AI progress displayed in status bar with adaptive precision
+- **Debug logging**: Use `--debug` flag to see detailed AI decision information
+
+### AI Metrics Display
+
+The status bar shows real-time AI learning progress:
+
+```
+location:victim1 kills:0 enemies:0 tick:10059 docker: connected AI:0.0061% dodged:0
+```
+
+The display uses adaptive precision:
+- **High exploration (>=0.1%)**: Shows 1 decimal (e.g., `AI:12.5%`)
+- **Early learning (0.0001%-0.1%)**: Shows 4 decimals (e.g., `AI:0.0061%`)
+- **Just starting (<0.0001%)**: Shows raw count (e.g., `AI:42/1638400`)
+
+The `dodged:N` counter tracks how many times enemies successfully avoided bullets.
+
+### Debug Mode
+
+Enable detailed AI logging with the `--debug` flag:
+
+```bash
+go run ./cmd/pacman --debug
+```
+
+This logs:
+- Each enemy's decision (state, action, Q-values)
+- Bullet threats detected and dodged
+- Reward breakdown for each move
+- New state discoveries
+- Special events like bullet dodges
 
 ## Warning
 
