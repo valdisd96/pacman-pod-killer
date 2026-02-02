@@ -118,14 +118,36 @@ If you add new tools (golangci-lint, staticcheck, etc.), update this section.
 - Logger is thread-safe and writes timestamped messages with level prefixes.
 
 ### SARSA reinforcement learning
-- State representation: relative player position (clamped to [-2,+2]) + available moves.
-- State space: ~400 possible states for manageable Q-table size.
+- State representation: relative player position (clamped to [-2,+2]) + available moves +
+  bullet threats + open space evaluation.
+- State space: ~1.6M possible states (5*5 position * 16 wall configs * 16 bullet configs * 256 open space).
 - Action space: Up, Down, Left, Right (4 actions).
-- Reward function: +100 catch, +1 closer, -0.5 farther, -2 wall, -0.1 step penalty.
+- Reward function:
+  - +100 catch player (ultimate goal)
+  - +1 move closer to player (encourage pursuit)
+  - -0.5 move farther from player (discourage fleeing)
+  - -2 hit wall (punish invalid moves)
+  - -0.1 step penalty (encourage efficiency)
+  - -8 bullet threat (strong avoidance of bullets moving toward enemy)
+  - +0.5 per open cell (prefer corridors with escape routes, scaled by depth)
+  - -2 dead end (penalty for entering trapped positions with 0 open cells)
 - Hyperparameters: alpha=0.1, gamma=0.95, epsilon=0.1 (configurable).
 - All enemies share a single Q-table for collective learning.
-- Q-table persists to JSON file between sessions.
+- Q-table persists to JSON file between sessions with version tracking (v2.0).
+- Old v1.0 Q-tables are automatically discarded on version mismatch.
 - SARSA update: Q(s,a) += alpha * [r + gamma * Q(s',a') - Q(s,a)].
+
+#### Bullet detection (internal/ai/bullet.go)
+- Enemies detect bullets within 7 cells in cardinal directions (up/down/left/right).
+- Only bullets moving toward the enemy are flagged as threats.
+- Diagonal bullets are ignored to keep state space manageable.
+- The 7-cell range balances early detection with computational efficiency.
+
+#### Open space evaluation (internal/ai/openspace.go)
+- Ray-casting counts walkable cells (0-3) in each direction from enemy position.
+- The 3-cell depth provides enough lookahead to detect dead-ends and corridors.
+- Helps enemies avoid getting trapped and prefer escape routes.
+- Used in reward calculation to discourage entering dead-ends (0 open cells).
 
 ### Maze generation
 - Walls are rendered as `#` characters.
