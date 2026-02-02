@@ -9,11 +9,14 @@ import (
 
 // Reward constants for the SARSA agent
 const (
-	RewardCatchPlayer = 100.0 // Ultimate goal
-	RewardMoveCloser  = 1.0   // Encourage pursuit
-	RewardMoveFarther = -0.5  // Discourage fleeing
-	RewardHitWall     = -2.0  // Punish invalid moves
-	RewardStepPenalty = -0.1  // Encourage efficiency
+	RewardCatchPlayer  = 100.0 // Ultimate goal
+	RewardMoveCloser   = 1.0   // Encourage pursuit
+	RewardMoveFarther  = -0.5  // Discourage fleeing
+	RewardHitWall      = -2.0  // Punish invalid moves
+	RewardStepPenalty  = -0.1  // Encourage efficiency
+	RewardBulletThreat = -8.0  // Strong bullet avoidance
+	RewardOpenSpace    = 0.5   // Prefer escape routes
+	RewardDeadEnd      = -2.0  // Avoid getting trapped
 )
 
 // Default hyperparameters
@@ -128,6 +131,7 @@ type EnemyState struct {
 func (s *SARSA) Step(
 	enemyX, enemyY int,
 	playerX, playerY int,
+	bullets []BulletInfo,
 	grid *maze.Grid,
 	enemyState *EnemyState,
 	caughtPlayer bool,
@@ -137,8 +141,11 @@ func (s *SARSA) Step(
 		return grid.CanMove(fromX, fromY, toX, toY)
 	}
 
-	// Compute current state
-	currentState := NewState(enemyX, enemyY, playerX, playerY, canMove)
+	// Count open space in each direction
+	openSpaces := CountOpenSpace(grid, enemyX, enemyY)
+
+	// Compute current state with bullet and open space info
+	currentState := NewState(enemyX, enemyY, playerX, playerY, canMove, bullets, openSpaces)
 	currentDistance := distance(enemyX, enemyY, playerX, playerY)
 
 	// Choose action for current state
@@ -152,6 +159,7 @@ func (s *SARSA) Step(
 			caughtPlayer,
 			enemyState.LastAction,
 			enemyState.LastState,
+			currentState,
 		)
 
 		// SARSA update: Q(s,a) += alpha * [r + gamma * Q(s',a') - Q(s,a)]
@@ -176,7 +184,7 @@ func (s *SARSA) computeReward(
 	prevDistance, currentDistance float64,
 	caughtPlayer bool,
 	action Action,
-	state State,
+	prevState, nextState State,
 ) float64 {
 	reward := RewardStepPenalty // Base step penalty
 
@@ -186,7 +194,7 @@ func (s *SARSA) computeReward(
 	}
 
 	// Check if the action was valid
-	if !state.CanTakeAction(action) {
+	if !prevState.CanTakeAction(action) {
 		reward += RewardHitWall
 		return reward
 	}
@@ -196,6 +204,71 @@ func (s *SARSA) computeReward(
 		reward += RewardMoveCloser
 	} else if currentDistance > prevDistance {
 		reward += RewardMoveFarther
+	}
+
+	// Bullet threat avoidance: check if we're moving toward a bullet
+	reward += s.computeBulletThreatReward(action, prevState)
+
+	// Open space preference: reward moving toward more open areas
+	reward += s.computeOpenSpaceReward(action, prevState, nextState)
+
+	return reward
+}
+
+// computeBulletThreatReward returns penalty if moving toward a bullet
+func (s *SARSA) computeBulletThreatReward(action Action, state State) float64 {
+	switch action {
+	case ActionUp:
+		if state.BulletUp {
+			return RewardBulletThreat
+		}
+	case ActionDown:
+		if state.BulletDown {
+			return RewardBulletThreat
+		}
+	case ActionLeft:
+		if state.BulletLeft {
+			return RewardBulletThreat
+		}
+	case ActionRight:
+		if state.BulletRight {
+			return RewardBulletThreat
+		}
+	}
+	return 0
+}
+
+// computeOpenSpaceReward rewards moving toward more open space
+// and penalizes entering dead-ends (0 open cells in that direction)
+func (s *SARSA) computeOpenSpaceReward(action Action, prevState, nextState State) float64 {
+	reward := 0.0
+
+	// Reward based on open space in the direction we're moving
+	switch action {
+	case ActionUp:
+		if nextState.OpenUp == 0 {
+			reward += RewardDeadEnd
+		} else {
+			reward += float64(nextState.OpenUp) * RewardOpenSpace / 3.0
+		}
+	case ActionDown:
+		if nextState.OpenDown == 0 {
+			reward += RewardDeadEnd
+		} else {
+			reward += float64(nextState.OpenDown) * RewardOpenSpace / 3.0
+		}
+	case ActionLeft:
+		if nextState.OpenLeft == 0 {
+			reward += RewardDeadEnd
+		} else {
+			reward += float64(nextState.OpenLeft) * RewardOpenSpace / 3.0
+		}
+	case ActionRight:
+		if nextState.OpenRight == 0 {
+			reward += RewardDeadEnd
+		} else {
+			reward += float64(nextState.OpenRight) * RewardOpenSpace / 3.0
+		}
 	}
 
 	return reward
@@ -215,7 +288,11 @@ func (s *SARSA) NextStep(grid *maze.Grid, enemyX, enemyY, playerX, playerY int) 
 		return grid.CanMove(fromX, fromY, toX, toY)
 	}
 
-	state := NewState(enemyX, enemyY, playerX, playerY, canMove)
+	// Get open spaces (no bullets passed - this is stateless inference)
+	openSpaces := CountOpenSpace(grid, enemyX, enemyY)
+	var emptyBullets []BulletInfo
+
+	state := NewState(enemyX, enemyY, playerX, playerY, canMove, emptyBullets, openSpaces)
 	action, _ := s.ChooseAction(state)
 
 	// Validate action is possible
@@ -244,8 +321,12 @@ func (s *SARSA) HandlePlayerCaught(enemyState *EnemyState, grid *maze.Grid, enem
 		return grid.CanMove(fromX, fromY, toX, toY)
 	}
 
+	// Get open spaces for terminal state
+	openSpaces := CountOpenSpace(grid, enemyX, enemyY)
+	var emptyBullets []BulletInfo
+
 	// Compute terminal state
-	currentState := NewState(enemyX, enemyY, playerX, playerY, canMove)
+	currentState := NewState(enemyX, enemyY, playerX, playerY, canMove, emptyBullets, openSpaces)
 	action, _ := s.ChooseAction(currentState)
 
 	// Final SARSA update with catch reward
@@ -255,6 +336,7 @@ func (s *SARSA) HandlePlayerCaught(enemyState *EnemyState, grid *maze.Grid, enem
 		true,
 		enemyState.LastAction,
 		enemyState.LastState,
+		currentState,
 	)
 
 	// Terminal state has Q=0 for next state

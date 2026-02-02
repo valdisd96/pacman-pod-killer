@@ -182,6 +182,23 @@ func (controller *Controller) filterDeadBullets() {
 	controller.state.Bullets = alive
 }
 
+// convertBulletsToInfo converts game bullets to ai.BulletInfo for AI processing
+func (controller *Controller) convertBulletsToInfo() []ai.BulletInfo {
+	bulletInfos := make([]ai.BulletInfo, 0, len(controller.state.Bullets))
+	for _, bullet := range controller.state.Bullets {
+		if bullet.Alive {
+			bulletInfos = append(bulletInfos, ai.BulletInfo{
+				X:     bullet.Position.X,
+				Y:     bullet.Position.Y,
+				DirX:  bullet.Direction.X,
+				DirY:  bullet.Direction.Y,
+				Alive: bullet.Alive,
+			})
+		}
+	}
+	return bulletInfos
+}
+
 func (controller *Controller) resolveBulletCollisions() {
 	for i := range controller.state.Bullets {
 		bullet := &controller.state.Bullets[i]
@@ -322,10 +339,14 @@ func (controller *Controller) moveEnemies() {
 
 		var dx, dy int
 		if controller.aiMode == AIModeSARSA && controller.sarsaAI != nil {
+			// Convert game bullets to ai.BulletInfo
+			bulletInfos := controller.convertBulletsToInfo()
+
 			// Use SARSA with learning
 			dx, dy = controller.sarsaAI.Step(
 				enemy.Position.X, enemy.Position.Y,
 				controller.state.Player.X, controller.state.Player.Y,
+				bulletInfos,
 				&controller.state.Maze,
 				&enemy.SARSAState,
 				false, // not caught yet
